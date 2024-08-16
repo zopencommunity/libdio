@@ -17,3 +17,5 @@ basicread.o: basicread.c $(INCDIR)/*.h
 basicwrite.o: basicwrite.c $(INCDIR)/*.h
 	$(CC) -qascii $(CFLAGS) $(CPPFLAGS) -I$(INCDIR) -c $<
 
+check: basicread basicwrite
+	./testwritethenread.sh
