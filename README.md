@@ -6,10 +6,10 @@ It provides a simple API to interact with z/OS datasets, making it easier to per
 ## Build Dependencies
 
 - **IBM XL C/C++ Compiler**
-- **cJSON**: JSON parser (required for building).
+- **cJSON**: C JSON parser (required for building).
+- - **Coreutils** and **Diffutils**: For testing.
 - **ZOAU**: z/OS Open Automation Utilities (required for testing).
-- **Coreutils** and **Diffutils**: Essential for testing (available via z/OS Open Tools).
-- **GNU Make**
+- **GNU Make**: For building
 
 To install dependencies using zopen:
 ```bash
