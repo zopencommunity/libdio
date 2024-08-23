@@ -1,0 +1,6 @@
+{
+    "dataset_settings": {
+        "DATA": { "extension": ".dat" },
+        "COBOL": { "extension": ".cbl" }
+    }
+}

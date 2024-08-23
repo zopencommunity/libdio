@@ -1,5 +1,7 @@
 *.lst
 *.o
 *.a
+*.swp
 **/basicread
 **/basicwrite
+**/defaults.c

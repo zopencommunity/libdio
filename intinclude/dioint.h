@@ -51,4 +51,5 @@
   };
 
   void errmsg(struct DFILE* dfile, const char* format, ...);
+  int initialize_configuration(char* in_llq, char* out_extension);
 #endif

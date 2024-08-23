@@ -9,11 +9,12 @@
 #include "wrappers.h"
 #include <_Nascii.h>
 #include <unistd.h>
+#include <cjson/cJSON.h>
 
 #define _OPEN_SYS_EXT
 #include <sys/ps.h>
 
-/* #define DEBUG 1 */
+/*#define DEBUG 1*/
 #define DD_SYSTEM "????????"
 #define ERRNO_NONEXISTANT_FILE (67)
 #define DIO_MSG_BUFF_LEN (4095)
@@ -108,7 +109,7 @@ enum DIOERR init_dsnam_text_unit(struct DFILE* dfile, const char* dsname, struct
   return DIOERR_NOERROR;
 }
 
-static void strupper(char* str)
+void strupper(char* str)
 {
   for (int i=0; i<strlen(str); ++i) {
     if (islower(str[i])) {
@@ -117,7 +118,7 @@ static void strupper(char* str)
   }
 }
 
-static void strlower(char* str)
+void strlower(char* str)
 {
   for (int i=0; i<strlen(str); ++i) {
     if (isupper(str[i])) {
@@ -340,10 +341,13 @@ static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_na
   strupper(difile->mlqs);
   strupper(difile->llq);
 
+  char extension[EXTENSION_MAX] = ".txt";
+  initialize_configuration(difile->llq, extension);
+
 #ifdef DEBUG
-  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s>\n", 
+  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s>\n", 
     dataset_name, difile->dataset_full_name, difile->dataset_name, difile->member_name, 
-    difile->hlq, difile->mlqs, difile->llq);
+    difile->hlq, difile->mlqs, difile->llq, extension);
 #endif
   return DIOERR_NOERROR;
 }
