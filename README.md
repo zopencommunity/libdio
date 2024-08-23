@@ -7,7 +7,7 @@ It provides a simple API to interact with z/OS datasets, making it easier to per
 
 - **IBM XL C/C++ Compiler**
 - **cJSON**: C JSON parser (required for building).
-- - **Coreutils** and **Diffutils**: For testing.
+- **Coreutils** and **Diffutils**: For testing.
 - **ZOAU**: z/OS Open Automation Utilities (required for testing).
 - **GNU Make**: For building
 
