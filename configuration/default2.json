@@ -1,0 +1,200 @@
+{
+  "global": {
+    "allocation_defaults": {
+      "space": {
+        "primary": "300",
+        "secondary": "150",
+        "unit": "TRK"
+      },
+      "record_format": "FB",
+      "record_length": "80",
+      "block_size": "3120",
+      "organization": "PS"
+    }
+  },
+  "low_level_qualifier": {
+    "DATA": {
+      "extension": ".tdat",
+      "mode": "binary"
+    },
+    "TEMPLATE": {
+      "extension": ".tmpl",
+      "mode": "binary"
+    },
+    "MFS": {
+      "extension": ".mfs",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+      }
+    },
+    "COBOL": {
+      "extension": ".cbl",
+      "mode": "text",
+      "code_pages": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "1000",
+          "secondary": "500",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "COBCOPY": {
+      "extension": ".cpy",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "PLI": {
+      "extension": ".pli",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "ASSEMBLE": {
+      "extension": ".asm",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "OBJ": {
+      "extension": ".o",
+      "mode": "binary"
+    },
+    "LOAD": {
+      "extension": ".exe",
+      "mode": "binary"
+    },
+    "CLIST": {
+      "extension": ".cmd",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "JCL": {
+      "extension": ".jcl",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "LISTING": {
+      "extension": ".lst",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "OUTLIST": {
+      "extension": ".out",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "INCLUDE": {
+      "extension": ".inc",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "MACRO": {
+      "extension": ".mac",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "REXX": {
+      "extension": ".rex",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "EXEC": {
+      "extension": ".rex",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "ERRWDZ": {
+      "extension": ".err",
+      "mode": "binary"
+    },
+    "COPYLIB": {
+      "extension": ".cpy",
+      "mode": "text",
+      "code_pages": "IBM-1047"
+    },
+    "XML": {
+      "extension": ".xml",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "BMS": {
+      "extension": ".bms",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "C": {
+      "extension": ".c",
+      "mode": "text",
+    "code_pages": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "300",
+          "secondary": "150",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "CPP": {
+      "extension": ".cpp",
+      "mode": "text",
+    "code_pages": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "300",
+          "secondary": "150",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "H": {
+      "extension": ".h",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "HPP": {
+      "extension": ".hpp",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "ERRRDZ": {
+      "extension": ".err",
+      "mode": "binary"
+    },
+    "SCLLIB": {
+      "extension": ".scl",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "AZUCFG": {
+      "extension": ".azucfg",
+      "mode": "binary"
+    },
+    "AZURES": {
+      "extension": ".azures",
+      "mode": "text",
+    "code_pages": "IBM-1047"
+    },
+    "AZUGEN": {
+      "extension": ".xml",
+      "mode": "binary"
+    },
+    "AZUSCH": {
+      "extension": ".xsd",
+      "mode": "binary"
+    },
+    "AZUDT": {
+      "extension": ".xml",
+      "mode": "binary"
+    }
+}
