@@ -1,31 +1,31 @@
-# libdio - A z/OS Dataset I/O library
+# libdio - A z/OS Dataset I/O Library
 
-### Build dependencies
+`libdio` is a lightweight library designed for efficient dataset I/O operations on z/OS. 
+It provides a simple API to interact with z/OS datasets, making it easier to perform common tasks like reading, writing, and managing datasets.
 
-* An IBM XL C/C++ compiler
-* cjson
-* ZOAU (for testing)
-* Coreutils (for testing - get it from z/OS Open Tools)
-* Diffutils (for testing - get it from z/OS Open Tools)
-* GNU Make
+## Build Dependencies
 
-If you have zopen installed, use:
+- **IBM XL C/C++ Compiler**
+- **cJSON**: JSON parser (required for building).
+- **ZOAU**: z/OS Open Automation Utilities (required for testing).
+- **Coreutils** and **Diffutils**: Essential for testing (available via z/OS Open Tools).
+- **GNU Make**
+
+To install dependencies using zopen:
 ```bash
 zopen install cjson coreutils diffutils
 ```
 
-### Building libdio
+## Building libdio
 
-The simplest method of building libdio is by leveraging zopen's build framework.
-
+### Using zopen’s Build Framework
 ```bash
 git clone git@github.com:ZOSOpenTools/libdioport.git
 cd libdioport
 zopen build -vv
 ```
 
-If you prefer to build it manually, clone this repo and then use make
-
+### Manual Build
 ```bash
 git clone git@github.com:ZOSOpenTools/libdio.git
 
@@ -33,8 +33,21 @@ export CJSON_INCLUDE_DIR=$ZOPEN_PKGINSTALL/cjson/cjson/include/
 export CJSON_LIBRARY=$ZOPEN_PKGINSTALL/cjson/cjson/lib/libcjson.a
 
 make
-
-make check # optional: to run tests
-
-make install PREFIX=<yourinstalldir>
+make check  # Optional: Run tests
 ```
+
+## Installation
+After building the library, you can install it using:
+```bash
+make install PREFIX=<installation_directory>
+```
+
+You can then link your programs against `libdio` by including the library in your build path.
+
+## Usage Example
+
+* Under construction
+* See https://github.com/ZOSOpenTools/libdio/tree/main/test for examples
+
+## License
+`libdio` is licensed under the [MIT License](LICENSE). Feel free to use and modify the code as per the license terms.
