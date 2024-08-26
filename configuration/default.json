@@ -15,187 +15,187 @@
   },
   "dataset_settings": {
     "DATA": {
-      "extension": ".tdat",
+      "extension": "tdat",
       "type": "binary"
     },
     "TEMPLATE": {
-      "extension": ".tmpl",
+      "extension": "tmpl",
       "type": "binary"
     },
     "MFS": {
-      "extension": ".mfs",
+      "extension": "mfs",
       "type": "text",
       "codepage": "IBM-1047"
     },
-  "COBOL": {
-    "extension": ".cbl",
-    "type": "text",
-    "codepage": "IBM-1047",
-    "allocation_defaults": {
-      "space": {
-        "primary": "1000",
-        "secondary": "500",
-        "unit": "CYL"
-      },
-      "record_format": "FB",
-      "record_length": "80",
-      "block_size": "3120",
-      "organization": "PS"
+    "COBOL": {
+      "extension": "cbl",
+      "type": "text",
+      "codepage": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "1000",
+          "secondary": "500",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "COBCOPY": {
+      "extension": "cpy",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "PLI": {
+      "extension": "pli",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "ASSEMBLE": {
+      "extension": "asm",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "OBJ": {
+      "extension": "o",
+      "type": "binary"
+    },
+    "LOAD": {
+      "extension": "exe",
+      "type": "binary"
+    },
+    "CLIST": {
+      "extension": "cmd",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "JCL": {
+      "extension": "jcl",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "LISTING": {
+      "extension": "lst",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "OUTLIST": {
+      "extension": "out",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "INCLUDE": {
+      "extension": "inc",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "MACRO": {
+      "extension": "mac",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "REXX": {
+      "extension": "rex",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "EXEC": {
+      "extension": "rex",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "ERRWDZ": {
+      "extension": "err",
+      "type": "binary"
+    },
+    "COPYLIB": {
+      "extension": "cpy",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "XML": {
+      "extension": "xml",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "BMS": {
+      "extension": "bms",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "C": {
+      "extension": "c",
+      "type": "text",
+      "codepage": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "300",
+          "secondary": "150",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "CPP": {
+      "extension": "cpp",
+      "type": "text",
+      "codepage": "IBM-1047",
+      "allocation_defaults": {
+        "space": {
+          "primary": "300",
+          "secondary": "150",
+          "unit": "CYL"
+        },
+        "record_format": "FB",
+        "record_length": "80",
+        "block_size": "3120",
+        "organization": "PS"
+      }
+    },
+    "H": {
+      "extension": "h",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "HPP": {
+      "extension": "hpp",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "ERRRDZ": {
+      "extension": "err",
+      "type": "binary"
+    },
+    "SCLLIB": {
+      "extension": "scl",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "AZUCFG": {
+      "extension": "azucfg",
+      "type": "binary"
+    },
+    "AZURES": {
+      "extension": "azures",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "AZUGEN": {
+      "extension": "xml",
+      "type": "binary"
+    },
+    "AZUSCH": {
+      "extension": "xsd",
+      "type": "binary"
+    },
+    "AZUDT": {
+      "extension": "xml",
+      "type": "binary"
     }
-  },
-  "COBCOPY": {
-    "extension": ".cpy",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "PLI": {
-    "extension": ".pli",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "ASSEMBLE": {
-    "extension": ".asm",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "OBJ": {
-    "extension": ".o",
-    "type": "binary"
-  },
-  "LOAD": {
-    "extension": ".exe",
-    "type": "binary"
-  },
-  "CLIST": {
-    "extension": ".cmd",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "JCL": {
-    "extension": ".jcl",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "LISTING": {
-    "extension": ".lst",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "OUTLIST": {
-    "extension": ".out",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "INCLUDE": {
-    "extension": ".inc",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "MACRO": {
-    "extension": ".mac",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "REXX": {
-    "extension": ".rex",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "EXEC": {
-    "extension": ".rex",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "ERRWDZ": {
-    "extension": ".err",
-    "type": "binary"
-  },
-  "COPYLIB": {
-    "extension": ".cpy",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "XML": {
-    "extension": ".xml",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "BMS": {
-    "extension": ".bms",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "C": {
-    "extension": ".c",
-    "type": "text",
-    "codepage": "IBM-1047",
-    "allocation_defaults": {
-      "space": {
-        "primary": "300",
-        "secondary": "150",
-        "unit": "CYL"
-      },
-      "record_format": "FB",
-      "record_length": "80",
-      "block_size": "3120",
-      "organization": "PS"
-    }
-  },
-  "CPP": {
-    "extension": ".cpp",
-    "type": "text",
-    "codepage": "IBM-1047",
-    "allocation_defaults": {
-      "space": {
-        "primary": "300",
-        "secondary": "150",
-        "unit": "CYL"
-      },
-      "record_format": "FB",
-      "record_length": "80",
-      "block_size": "3120",
-      "organization": "PS"
-    }
-  },
-  "H": {
-    "extension": ".h",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "HPP": {
-    "extension": ".hpp",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "ERRRDZ": {
-    "extension": ".err",
-    "type": "binary"
-  },
-  "SCLLIB": {
-    "extension": ".scl",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "AZUCFG": {
-    "extension": ".azucfg",
-    "type": "binary"
-  },
-  "AZURES": {
-    "extension": ".azures",
-    "type": "text",
-    "codepage": "IBM-1047"
-  },
-  "AZUGEN": {
-    "extension": ".xml",
-    "type": "binary"
-  },
-  "AZUSCH": {
-    "extension": ".xsd",
-    "type": "binary"
-  },
-  "AZUDT": {
-    "extension": ".xml",
-    "type": "binary"
   }
- }
 }

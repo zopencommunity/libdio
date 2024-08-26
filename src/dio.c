@@ -341,13 +341,13 @@ static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_na
   strupper(difile->mlqs);
   strupper(difile->llq);
 
-  char extension[EXTENSION_MAX] = ".txt";
-  initialize_configuration(difile->llq, extension);
+  initialize_configuration(difile->llq, difile->unix_extension);
+  strlower(difile->unix_extension);
 
 #ifdef DEBUG
   printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s>\n", 
     dataset_name, difile->dataset_full_name, difile->dataset_name, difile->member_name, 
-    difile->hlq, difile->mlqs, difile->llq, extension);
+    difile->hlq, difile->mlqs, difile->llq, difile->unix_extension);
 #endif
   return DIOERR_NOERROR;
 }
@@ -868,46 +868,20 @@ const char* low_level_qualifier(struct DFILE* dfile, char* llq_copy)
   return llq_copy;
 }
 
-const char* llq_to_extension(struct DFILE* dfile, const char* llq, char* extension) {
-  if (strcasecmp(llq, "COBOL") == 0) {
-    strcpy(extension, "cbl");
-  } else if (strcasecmp(llq, "H") == 0) {
-    strcpy(extension, "h");
-  } else if (strcasecmp(llq, "ASM") == 0) {
-    strcpy(extension, "asm");
-  } else if (strcasecmp(llq, "C") == 0) {
-    strcpy(extension, "c");
-  } else if (strcasecmp(llq, "JCL") == 0) {
-    strcpy(extension, "jcl");
-  } else if (strcasecmp(llq, "PLI") == 0) {
-    strcpy(extension, "pli");
-  } else if (strcasecmp(llq, "TXT") == 0) {
-    strcpy(extension, "txt");
-  } else {
-    strcpy(extension, llq); // Default to lower-case LLQ
-    strlower(extension);
-  }
-
-  return extension;
-}
-
 const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
-  char extension[EXTENSION_MAX];
-
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  llq_to_extension(dfile, difile->llq, extension);
   if (has_member(difile)) {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, difile->unix_extension);
     }
   } else {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s", difile->hlq, extension);
+      sprintf(unixfile, "%s.%s", difile->hlq, difile->unix_extension);
     }
   }
 

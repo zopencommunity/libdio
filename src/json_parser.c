@@ -20,30 +20,30 @@ void __stack_chk_fail() {}
 extern const char *build_default_json;
 
 
+// Currently returns the extension, but could return default allocation parameters in the future
 int initialize_configuration(char* in_llq, char* out_extension) {
 
   char* llq = strdup(in_llq);
   __e2a_s(llq);
 
-  __ae_thread_swapmode(__AE_ASCII_MODE);
-
+  int prevMode = __ae_thread_swapmode(__AE_ASCII_MODE);
   if (get_user_configuration(llq, out_extension) == 0) {
+    strlower(out_extension);
     free(llq);
-    __ae_thread_swapmode(__AE_EBCDIC_MODE);
+    __ae_thread_setmode(prevMode);
     return 0;
   }
 
   if (get_configuration_defaults(llq, out_extension) == 0) {
+    strlower(out_extension);
     free(llq);
-    __ae_thread_swapmode(__AE_EBCDIC_MODE);
+    __ae_thread_setmode(prevMode);
     return 0;
   }
 
-  __ae_thread_swapmode(__AE_EBCDIC_MODE);
-
   // If all else fails, lower case llq
-  strcpy(out_extension, llq);
-  __a2e_s(out_extension);
+  __ae_thread_setmode(prevMode);
+  strcpy(out_extension, in_llq);
   strlower(out_extension);
   free(llq);
   return 0;
