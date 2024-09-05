@@ -1,18 +1,4 @@
 {
-  "global": {
-    "allocation_defaults": {
-      "space": {
-        "primary": "300",
-        "secondary": "150",
-        "unit": "TRK"
-      },
-      "record_format": "FB",
-      "record_length": "80",
-      "block_size": "3120",
-      "organization": "PS"
-    },
-    "codepage": "IBM-1047"
-  },
   "dataset_settings": {
     "DATA": {
       "extension": "tdat",
@@ -30,18 +16,7 @@
     "COBOL": {
       "extension": "cbl",
       "type": "text",
-      "codepage": "IBM-1047",
-      "allocation_defaults": {
-        "space": {
-          "primary": "1000",
-          "secondary": "500",
-          "unit": "CYL"
-        },
-        "record_format": "FB",
-        "record_length": "80",
-        "block_size": "3120",
-        "organization": "PS"
-      }
+      "codepage": "IBM-1047"
     },
     "COBCOPY": {
       "extension": "cpy",
@@ -73,6 +48,11 @@
     },
     "JCL": {
       "extension": "jcl",
+      "type": "text",
+      "codepage": "IBM-1047"
+    },
+    "LIST": {
+      "extension": "lst",
       "type": "text",
       "codepage": "IBM-1047"
     },
@@ -128,34 +108,12 @@
     "C": {
       "extension": "c",
       "type": "text",
-      "codepage": "IBM-1047",
-      "allocation_defaults": {
-        "space": {
-          "primary": "300",
-          "secondary": "150",
-          "unit": "CYL"
-        },
-        "record_format": "FB",
-        "record_length": "80",
-        "block_size": "3120",
-        "organization": "PS"
-      }
+      "codepage": "IBM-1047"
     },
     "CPP": {
       "extension": "cpp",
       "type": "text",
-      "codepage": "IBM-1047",
-      "allocation_defaults": {
-        "space": {
-          "primary": "300",
-          "secondary": "150",
-          "unit": "CYL"
-        },
-        "record_format": "FB",
-        "record_length": "80",
-        "block_size": "3120",
-        "organization": "PS"
-      }
+      "codepage": "IBM-1047"
     },
     "H": {
       "extension": "h",
@@ -195,6 +153,10 @@
     },
     "AZUDT": {
       "extension": "xml",
+      "type": "binary"
+    },
+    "MACLIB": {
+      "extension": "hlasm",
       "type": "binary"
     }
   }
