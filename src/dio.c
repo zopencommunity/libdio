@@ -14,7 +14,7 @@
 #define _OPEN_SYS_EXT
 #include <sys/ps.h>
 
-/*#define DEBUG 1*/
+//#define DEBUG 1
 #define DD_SYSTEM "????????"
 #define ERRNO_NONEXISTANT_FILE (67)
 #define DIO_MSG_BUFF_LEN (4095)
@@ -341,13 +341,15 @@ static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_na
   strupper(difile->mlqs);
   strupper(difile->llq);
 
-  initialize_configuration(difile->llq, difile->unix_extension);
+  initialize_configuration(difile->dataset_name, difile->llq, difile->unix_extension, &difile->txtflag, &difile->ccsid);
   strlower(difile->unix_extension);
 
 #ifdef DEBUG
-  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s>\n", 
+  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s> text <%d> ccsid <%d>\n", 
     dataset_name, difile->dataset_full_name, difile->dataset_name, difile->member_name, 
-    difile->hlq, difile->mlqs, difile->llq, difile->unix_extension);
+    difile->hlq, difile->mlqs, difile->llq, difile->unix_extension, difile->txtflag, difile->ccsid);
+  __ae_thread_setmode(prevMode);
 #endif
   return DIOERR_NOERROR;
 }

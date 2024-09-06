@@ -1,161 +1,161 @@
 {
   "dataset_settings": {
-    "DATA": {
+    "*.DATA": {
       "extension": "tdat",
       "type": "binary"
     },
-    "TEMPLATE": {
+    "*.TEMPLATE": {
       "extension": "tmpl",
       "type": "binary"
     },
-    "MFS": {
+    "*.MFS": {
       "extension": "mfs",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "COBOL": {
+    "*.COBOL": {
       "extension": "cbl",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "COBCOPY": {
+    "*.COBCOPY": {
       "extension": "cpy",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "PLI": {
+    "*.PLI": {
       "extension": "pli",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "ASSEMBLE": {
+    "*.ASSEMBLE": {
       "extension": "asm",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "OBJ": {
+    "*.OBJ": {
       "extension": "o",
       "type": "binary"
     },
-    "LOAD": {
+    "*.LOAD": {
       "extension": "exe",
       "type": "binary"
     },
-    "CLIST": {
+    "*.CLIST": {
       "extension": "cmd",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "JCL": {
+    "*.JCL": {
       "extension": "jcl",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "LIST": {
+    "*.LIST": {
       "extension": "lst",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "LISTING": {
+    "*.LISTING": {
       "extension": "lst",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "OUTLIST": {
+    "*.OUTLIST": {
       "extension": "out",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "INCLUDE": {
+    "*.INCLUDE": {
       "extension": "inc",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "MACRO": {
+    "*.MACRO": {
       "extension": "mac",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "REXX": {
-      "extension": "rex",
+    "*.REXX": {
+      "extension": "rexx",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "EXEC": {
-      "extension": "rex",
+    "*.EXEC": {
+      "extension": "rexx",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "ERRWDZ": {
+    "*.ERRWDZ": {
       "extension": "err",
       "type": "binary"
     },
-    "COPYLIB": {
+    "*.COPYLIB": {
       "extension": "cpy",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "XML": {
+    "*.XML": {
       "extension": "xml",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "BMS": {
+    "*.BMS": {
       "extension": "bms",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "C": {
+    "*.C": {
       "extension": "c",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "CPP": {
+    "*.CPP": {
       "extension": "cpp",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "H": {
+    "*.H": {
       "extension": "h",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "HPP": {
+    "*.HPP": {
       "extension": "hpp",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "ERRRDZ": {
+    "*.ERRRDZ": {
       "extension": "err",
       "type": "binary"
     },
-    "SCLLIB": {
+    "*.SCLLIB": {
       "extension": "scl",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "AZUCFG": {
+    "*.AZUCFG": {
       "extension": "azucfg",
       "type": "binary"
     },
-    "AZURES": {
+    "*.AZURES": {
       "extension": "azures",
       "type": "text",
       "codepage": "IBM-1047"
     },
-    "AZUGEN": {
+    "*.AZUGEN": {
       "extension": "xml",
       "type": "binary"
     },
-    "AZUSCH": {
+    "*.AZUSCH": {
       "extension": "xsd",
       "type": "binary"
     },
-    "AZUDT": {
+    "*.AZUDT": {
       "extension": "xml",
       "type": "binary"
     },
-    "MACLIB": {
+    "*.MACLIB": {
       "extension": "hlasm",
       "type": "binary"
     }
