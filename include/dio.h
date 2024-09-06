@@ -87,6 +87,8 @@
     int is_binary;
     FILE* logstream;
     void* internal;
+    int txtflag;
+    int ccsid;
   };
     
   /* CONSTANTS */

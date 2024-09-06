@@ -49,8 +49,6 @@
     enum DSTATE dstate;
     size_t read_buffer_size;
     size_t cur_read_offset;
-    int txtflag;
-    int ccsid;
   };
 
   void errmsg(struct DFILE* dfile, const char* format, ...);
