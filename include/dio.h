@@ -35,6 +35,7 @@
   #define DCCSID_BINARY (-1)
   #define DCCSID_NOTSET (0)
 
+
   /*
    * Error message return code and last error message 
    */
@@ -100,6 +101,7 @@
   #define MEM_MAX (8)
   #define DS_FULL_MAX (DS_MAX+MEM_MAX+2)
   #define EXTENSION_MAX 16
+  #define DS_MAX_REC_SIZE 32768
 
   /*
    * open_dataset: given a dataset name in the format:
@@ -259,4 +261,15 @@
    */
   int is_binary(const char *str, int length);
 
+  /*
+    write_dataset_to_temp_file:
+    Helper function to write dataset contents to a temporary file.
+  */
+  int write_dataset_to_temp_file(struct DFILE *dfile, char* tempname, int force_binary);
+
+  /*
+    read_temp_file_to_buffer:
+    Reads the contents of a temporary file into dfile's buffer
+  */
+  char* read_temp_file_to_buffer(char* tempname, struct DFILE* dfile);
 #endif

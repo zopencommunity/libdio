@@ -1,8 +1,12 @@
+#define _ENHANCED_ASCII_EXT 0xFFFFFFFF 
+#define _OPEN_SYS_FILE_EXT 1
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "s99.h"
 #include "dio.h"
 #include "dioint.h"
@@ -622,7 +626,6 @@ int has_length_prefix(enum DRECFM recfm)
 }
 
 #define INIT_READ_BUFFER_SIZE (1<<24) /* 16MB */
-#define DS_MAX_REC_SIZE (32768)
 static enum DIOERR read_dataset_internal(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
@@ -905,4 +908,177 @@ int is_binary(const char *str, int length) {
   }
 
   return 0;
+}
+
+int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
+                               int force_binary) {
+  int perms = dfile->readonly ? 0400 : 0600;
+
+  // Create temporary file with dataset contents
+  int temp_fd;
+  if (__isASCII()) {
+    tempname = strdup(tempname);
+    __a2e_s(tempname);
+  }
+  if ((temp_fd = open(tempname, O_WRONLY | O_CREAT | O_TRUNC, perms)) == -1) {
+    close_dataset(dfile);
+    close(temp_fd);
+    return 1;
+  }
+  struct f_cnvrt req = {SETCVTOFF, 0, 0};
+  fcntl(temp_fd, F_CONTROL_CVT, &req);
+
+  int length_prefix = has_length_prefix(dfile->recfm);
+  int i = 0;
+  char *data = dfile->buffer;
+  if (length_prefix) {
+    uint16_t reclen;
+    while (i < dfile->bufflen) {
+      memcpy(&reclen, &data[i], sizeof(reclen));
+      i += sizeof(reclen);
+      if (write(temp_fd, &data[i], reclen) != reclen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1;
+      }
+      if (!force_binary)
+        if (write(temp_fd, "\n", 1) != 1) {
+          close_dataset(dfile);
+          close(temp_fd);
+          return 1;
+        }
+      i += reclen;
+    }
+  } else {
+    while (i < dfile->bufflen) {
+      if (write(temp_fd, &data[i], dfile->reclen) != dfile->reclen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1;
+      }
+      if (!force_binary)
+        if (write(temp_fd, "\n", 1) != 1) {
+          free(dfile->buffer);
+          close_dataset(dfile);
+          close(temp_fd);
+          return 1;
+        }
+      i = i + dfile->reclen;
+    }
+  }
+
+  // Set the ccsid
+  attrib_t attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.att_filetagchg = 1;
+  attr.att_filetag.ft_ccsid = dfile->ccsid;
+  attr.att_filetag.ft_txtflag = dfile->txtflag;
+  __fchattr(temp_fd, &attr, sizeof(attr));
+  close(temp_fd);
+  return 0;
+}
+
+char *read_temp_file_to_buffer(char *tempname, struct DFILE *dfile) {
+  // Read temporary file into record buffer
+  if (__isASCII()) {
+    tempname = strdup(tempname);
+    __a2e_s(tempname);
+  }
+  FILE *fp;
+  if ((fp = fopen(tempname, "r")) == NULL) {
+    errmsg(dfile, "Cannot open temporary file: %s", tempname);
+    return NULL;
+  }
+
+  if (!fp) {
+    errmsg(dfile, "Error: Invalid file pointer");
+    return NULL;
+  }
+
+  // Count lines to estimate buffer size
+  int lines = 0;
+  char *line = malloc(DS_MAX_REC_SIZE);
+
+  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE);
+  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
+    lines++;
+  }
+  __ae_thread_swapmode(prevMode);
+
+  int buffer_size = lines * dfile->reclen * 2;
+  rewind(fp);
+
+  char *buffer = malloc(buffer_size);
+  if (!buffer) {
+    errmsg(dfile, "Error: Failed to allocate memory for buffer");
+    fclose(fp);
+    return NULL;
+  }
+
+  if (!line) {
+    errmsg(dfile, "Error: Failed to allocate memory for line buffer");
+    free(buffer);
+    fclose(fp);
+    return NULL;
+  }
+
+  int tot_size = 0;
+  uint16_t record_length = 0;
+  int line_num = 0;
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  prevMode =
+      __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  // Read the file line by line and populate the buffer
+  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
+    __ae_thread_swapmode(prevMode);
+    line_num++;
+    record_length = strlen(line) - 1; // Ignore newline character
+
+    if (record_length > dfile->reclen) {
+      errmsg(dfile, "Error: Line %d exceeds record length of %d", line_num,
+             dfile->reclen);
+      free(line);
+      free(buffer);
+      fclose(fp);
+      return NULL;
+    }
+
+    // Add the length prefix if needed
+    if (length_prefix) {
+      if ((tot_size + sizeof(uint16_t) + record_length) > buffer_size) {
+        errmsg(dfile, "Error: Exceeded buffer size at line %d", line_num);
+        free(line);
+        free(buffer);
+        fclose(fp);
+        return NULL;
+      }
+      memcpy(&buffer[tot_size], &record_length, sizeof(uint16_t));
+      tot_size += sizeof(uint16_t);
+      memcpy(&buffer[tot_size], line, record_length);
+      tot_size += record_length;
+    } else {
+      if ((tot_size + dfile->reclen) > buffer_size) {
+        errmsg(dfile, "Error: Exceeded buffer size at line %d", line_num);
+        free(line);
+        free(buffer);
+        fclose(fp);
+        return NULL;
+      }
+      memcpy(&buffer[tot_size], line, record_length);
+      memset(&buffer[tot_size + record_length], ' ',
+             dfile->reclen -
+                 record_length); // Fill remaining space with padding
+      tot_size += dfile->reclen;
+    }
+    prevMode =
+        __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  }
+  __ae_thread_swapmode(prevMode); // Otherwise it gets garbled
+
+  free(line);
+  dfile->buffer = buffer;
+  dfile->bufflen = tot_size;
+  fclose(fp);
+  return buffer;
 }
