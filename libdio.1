@@ -1,0 +1,134 @@
+.TH CONFIGURATION "1" "2024" "Custom Libdio Dataset Configuration" "User Commands"
+.SH NAME
+configuration \- Customize libdio behavior using a JSON configuration file
+
+.SH DESCRIPTION
+Libdio reads dataset configuration details from a JSON file to customize behavior based on dataset characteristics. You can define rules for specific datasets using wildcards, allowing for custom handling of extensions, codepages, and text/binary flags.
+
+The configuration supports three fields:
+.IP "\fBextension\fP"
+Specifies the file extension that should be associated with a dataset.
+.IP "\fBtype\fP"
+Specifies whether the dataset should be treated as "text" or "binary".
+.IP "\fBcodepage\fP"
+Specifies the codepage or charset to be used when reading/writing the dataset. The application will convert the codepage into the appropriate CCSID using the \fB__toCcsid\fP() function.
+
+The configuration can be customized for different dataset patterns using wildcards and dataset qualifiers.
+
+.SH DETAILS
+
+.TP
+.B \fB*.DATA\fP
+This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.DATA\fP. The following configuration would map all \fB.DATA\fP datasets to a \fBtdat\fP file extension, treat them as binary, and use the \fBIBM-1047\fP codepage:
+.RS
+.EX
+{
+  "*.DATA": {
+    "extension": "tdat",
+    "type": "binary",
+    "codepage": "IBM-1047"
+  }
+}
+.EE
+.RE
+
+.TP
+.B \fB*.TEMPLATE\fP
+This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.TEMPLATE\fP. The following configuration would map all \fB.TEMPLATE\fP datasets to a \fBtmpl\fP file extension, treat them as binary, and use the \fBISO-8859-1\fP codepage:
+.RS
+.EX
+{
+  "*.TEMPLATE": {
+    "extension": "tmpl",
+    "type": "binary",
+    "codepage": "ISO-8859-1"
+  }
+}
+.EE
+.RE
+
+.TP
+.B \fBITODORO.IGOR.COBOL\fP
+For fully qualified datasets, the following configuration applies to the dataset \fBITODORO.IGOR.COBOL\fP, mapping it to a \fBcob\fP extension, treating it as text, and using the \fBIBM-037\fP codepage:
+.RS
+.EX
+{
+  "ITODORO.IGOR.COBOL": {
+    "extension": "cob",
+    "type": "text",
+    "codepage": "IBM-037"
+  }
+}
+.EE
+.RE
+
+.TP
+.B \fBDefault Configuration\fP
+If a dataset does not match any specific patterns in the JSON configuration, the default settings will be used. Defaults can be customized based on your needs but generally apply to all unmatched datasets.
+
+For example:
+.RS
+.EX
+{
+  "default": {
+    "extension": "<lowercase of llq>",
+    "type": "text",
+    "codepage": "IBM-1047"
+  }
+}
+.EE
+.RE
+
+.SH ENVIRONMENT
+The application searches for a JSON configuration file in the following order:
+.IP \[bu] 2
+\fB$DIO_CONFIG\fP environment variable if set, pointing to a custom configuration file.
+.IP \[bu] 2
+\fB$HOME/.dioconfig.json\fP in the user's home directory.
+.IP \[bu] 2
+A default configuration file provided with the build, if no user-specific file is found.
+
+.SH EXAMPLES
+Here are some usage examples of the JSON configuration file:
+
+.TP
+.B Example 1: Handling multiple dataset types
+Configure multiple datasets with different types, extensions, and codepages:
+.RS
+.EX
+{
+  "*.DATA": {
+    "extension": "tdat",
+    "type": "binary",
+    "codepage": "IBM-1047"
+  },
+  "*.TEMPLATE": {
+    "extension": "tmpl",
+    "type": "binary",
+    "codepage": "ISO-8859-1"
+  },
+  "ITODORO.IGOR.COBOL": {
+    "extension": "cob",
+    "type": "text",
+    "codepage": "IBM-037"
+  },
+  "default": {
+    "extension": "dat",
+    "type": "text",
+    "codepage": "IBM-1047"
+  }
+}
+.EE
+.RE
+
+.SH FILES
+The following files are used by the application to load the configuration:
+
+.IP \fB$DIO_CONFIG\fP 20
+The environment variable to specify a custom configuration file.
+
+.IP \fB$HOME/.dioconfig.json\fP 20
+The default location for user-specific configuration.
+
+.SH AUTHOR
+Written by z/OS Open Tools, 2024

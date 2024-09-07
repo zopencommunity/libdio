@@ -43,8 +43,11 @@ src:
 install: src
 	install -d $(PREFIX)/lib
 	install -d $(PREFIX)/include
+	install -d $(PREFIX)/share/man/man1
+	install $(SRC_DIR)/libdio.a $(PREFIX)/lib
 	install $(SRC_DIR)/libdio.a $(PREFIX)/lib
 	install include/*.h $(PREFIX)/include
+	install libdio.1 $(PREFIX)/share/man/man1
 
 check: src
 	cd $(TEST_DIR) && $(MAKE) check
