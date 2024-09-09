@@ -18,14 +18,14 @@ The configuration can be customized for different dataset patterns using wildcar
 .SH DETAILS
 
 .TP
-.B \fB*.DATA\fP
-This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.DATA\fP. The following configuration would map all \fB.DATA\fP datasets to a \fBtdat\fP file extension, treat them as binary, and use the \fBIBM-1047\fP codepage:
+.B \fB*.MYFILES\fP
+This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.MYFILES\fP. The following configuration would map all \fB.MYFILES\fP datasets to a \fBtxt\fP file extension, treat them as text, and use the \fBIBM-1047\fP codepage:
 .RS
 .EX
 {
-  "*.DATA": {
-    "extension": "tdat",
-    "type": "binary",
+  "*.MYFILES": {
+    "extension": "txt",
+    "type": "text",
     "codepage": "IBM-1047"
   }
 }
@@ -34,13 +34,13 @@ This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.DATA\f
 
 .TP
 .B \fB*.TEMPLATE\fP
-This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.TEMPLATE\fP. The following configuration would map all \fB.TEMPLATE\fP datasets to a \fBtmpl\fP file extension, treat them as binary, and use the \fBISO-8859-1\fP codepage:
+This pattern matches all datasets with a low-level qualifier (LLQ) of \fB.TEMPLATE\fP. The following configuration would map all \fB.TEMPLATE\fP datasets to a \fBtmpl\fP file extension, treat them as text, and use the \fBISO-8859-1\fP codepage:
 .RS
 .EX
 {
   "*.TEMPLATE": {
     "extension": "tmpl",
-    "type": "binary",
+    "type": "text",
     "codepage": "ISO-8859-1"
   }
 }
