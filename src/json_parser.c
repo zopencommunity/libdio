@@ -40,7 +40,6 @@ int initialize_configuration(char *in_dsname, char *in_llq, char *out_extension,
   // Try user configuration first
   if (get_user_configuration(dsname, llq, out_extension, out_txtflag,
                              out_ccsid) == 0) {
-    strlower(out_extension);
     free(dsname);
     free(llq);
     __ae_thread_setmode(prevMode);
@@ -50,7 +49,6 @@ int initialize_configuration(char *in_dsname, char *in_llq, char *out_extension,
   // Fall back to default configuration
   if (get_configuration_defaults(dsname, llq, out_extension, out_txtflag,
                                  out_ccsid) == 0) {
-    strlower(out_extension);
     free(dsname);
     free(llq);
     __ae_thread_setmode(prevMode);
@@ -102,6 +100,9 @@ int parse_configuration(cJSON *root, char *in_dsname, char *in_llq,
     dsname_extension = cJSON_GetObjectItem(dsname_object, "extension");
     cJSON *dsname_type = cJSON_GetObjectItem(dsname_object, "type");
     cJSON *dsname_codepage = cJSON_GetObjectItem(dsname_object, "codepage");
+#ifdef DEBUG
+    fprintf(stderr, "Found codepage and type: %s %s\n", dsname_codepage->valuestring, dsname_type->valuestring);
+#endif
 
     if (dsname_extension != NULL)
       set_default_extension(dsname_extension->valuestring, out_extension);
@@ -144,6 +145,9 @@ int get_user_configuration(char *in_dsname, char *in_llq, char *out_extension,
       char home_config_path[_POSIX_PATH_MAX];
       sprintf(home_config_path, "%s/.dioconfig.json", home);
       file = fopen(home_config_path, "r");
+#ifdef DEBUG
+      fprintf(stderr, "Found %s\n", home_config_path);
+#endif
     }
   }
 
