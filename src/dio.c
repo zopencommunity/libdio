@@ -971,7 +971,7 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
   attrib_t attr;
   memset(&attr, 0, sizeof(attr));
   attr.att_filetagchg = 1;
-  attr.att_filetag.ft_ccsid = dfile->ccsid;
+  attr.att_filetag.ft_ccsid = dfile->ccsid == 0 ? 1047 : dfile->ccsid;
   attr.att_filetag.ft_txtflag = dfile->txtflag;
   __fchattr(temp_fd, &attr, sizeof(attr));
   close(temp_fd);
