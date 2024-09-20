@@ -723,7 +723,7 @@ static enum DIOERR write_dataset_internal(struct DFILE* dfile)
 
   errno = 0;
 
-  if ((dfile->bufflen == 0) || (dfile->buffer == NULL)) {
+  if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
     errmsg(dfile, "No buffer and/or buffer length not positive - no action performed.");
     return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
   }
@@ -996,7 +996,7 @@ char *read_temp_file_to_buffer(char *tempname, struct DFILE *dfile) {
   }
 
   // Count lines to estimate buffer size
-  int lines = 0;
+  int lines = 1;  // always start with one line
   char *line = malloc(DS_MAX_REC_SIZE);
 
   int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE);
