@@ -156,8 +156,9 @@
       "type": "binary"
     },
     "*.MACLIB": {
-      "extension": "hlasm",
-      "type": "binary"
+      "extension": "asm",
+      "type": "text",
+      "codepage": "IBM-1047"
     }
   }
 }
