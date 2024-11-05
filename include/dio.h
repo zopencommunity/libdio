@@ -262,6 +262,11 @@
   int is_binary(const char *str, int length);
 
   /*
+   * has_member: checks if the dataset has a member
+   */
+  int has_member(struct DFILE *dfile);
+
+  /*
     write_dataset_to_temp_file:
     Helper function to write dataset contents to a temporary file.
   */

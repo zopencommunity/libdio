@@ -131,9 +131,9 @@ void strlower(char* str)
   }
 }
 
-
-static int has_member(struct DIFILE* difile)
+int has_member(struct DFILE* dfile)
 {
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
   return difile->member_name[0] != '\0';
 }
 
@@ -435,7 +435,7 @@ static const char* dstates(enum DSTATE dstate)
 static FILE* opendd(struct DFILE* dfile, struct DIFILE* difile, const char* openfmt)
 {
  char copendd[DD_MAX+MEM_MAX+2+2+2+1+1];
-  if (has_member(difile)) {
+  if (has_member(dfile)) {
     sprintf(copendd, "//DD:%s(%s)", difile->ddname, difile->member_name);
   } else {
     sprintf(copendd, "//DD:%s", difile->ddname);
@@ -525,7 +525,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   if (difile->fp) {
     difile->dstate = D_READWRITE_BINARY;
   } else {
-    if ((errno == ERRNO_NONEXISTANT_FILE) && has_member(difile)) {
+    if ((errno == ERRNO_NONEXISTANT_FILE) && has_member(dfile)) {
       /*
        * This is a PDS or PDSE member, and the member does not exist yet.
        * We need to open the member in write to get the attributes of the actual
@@ -830,7 +830,7 @@ const char* member_name(struct DFILE* dfile, char* member_copy)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  if (has_member(difile)) {
+  if (has_member(dfile)) {
     size_t len = strlen(difile->member_name);
     memcpy(member_copy, difile->member_name, len);
     member_copy[len] = '\0';
@@ -876,7 +876,7 @@ const char* low_level_qualifier(struct DFILE* dfile, char* llq_copy)
 const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  if (has_member(difile)) {
+  if (has_member(dfile)) {
     if (has_mlqs(difile)) {
       sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
     } else {
