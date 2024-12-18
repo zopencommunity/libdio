@@ -22,7 +22,7 @@ export AS := as
 export ASFLAGS := --SYSPARM\($(ASAMODE)\),GOFF,LIST,'SUPRWARN(425,434)'
 export CC := xlc
 export CFLAGS := -Wc,$(DATA_MODEL)',SUPP(CCN3764),AGGR,LIST(./)'
-export CPPFLAGS := -DAMODE=$(MODE) -D_ALL_SOURCE=1 $(CPPFLAGS) -D_AE_BIMODAL=1
+export CPPFLAGS := -DAMODE=$(MODE) -D_ALL_SOURCE=1 $(CPPFLAGS) -D_AE_BIMODAL=1 -I../include -I../intinclude
 export LD := xlc
 export LDFLAGS := -Wc,$(DATA_MODEL) $(LDFLAGS)
 export LIBS := $(LIBS)

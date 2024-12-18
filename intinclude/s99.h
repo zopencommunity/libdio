@@ -111,16 +111,21 @@
 		};
 	};
 
-	#define DALDDNAM 0x01
-	#define DALDSNAM 0x02
-	#define DALSTATS 0x04
-	#define DALNDISP 0x05
-	#define DALEROPT 0x3D
-	#define DALRTDDN 0x55
-	#define DALBRTKN 0x6E
-	#define DALSSREQ 0x5C
+#define DALDDNAM 0x01
+#define DALDSNAM 0x02
+#define DALSTATS 0x04
+#define DALNDISP 0x05
+#define DALEROPT 0x3D
+#define DALRTDDN 0x55
+#define DALBRTKN 0x6E
+#define DALSSREQ 0x5C
 
-	#define DUNDDNAM 0x01
+#define DUNDDNAM 0x01
+
+#define DALSTATS_OLD   0x1
+#define DALSTATS_MOD   0x2
+#define DALSTATS_NEW   0x4
+#define DALSTATS_SHR   0x8
 
 	struct s99_eopts {
 		int s99eimsg:1;

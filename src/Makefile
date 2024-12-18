@@ -1,12 +1,14 @@
-IINCDIR=../intinclude
 INCDIR=../include
+IINCDIR=../intinclude
 MACDIR=../maclib
 
 AR=ar
 ARFLAGS=rcs
 ARCHIVE=libdio.a
 
-OBJ_FILES=dio.o call31.o call31a.o s99.o s99a.o defaults.o json_parser.o
+OBJ_FILES=dio.o call31.o call31a.o s99.o s99a.o defaults.o json_parser.o \
+  bpamio.o ztime.o memdir.o dio_new.o util.o \
+  mem.o iosvcs.o ihadcb.o mema.o dioa.o msg.o
 
 all: $(ARCHIVE)
 
@@ -19,7 +21,13 @@ call31.o: call31.c $(IINCDIR)/wrappers.h
 call31a.o: call31a.s
 	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
 
+mema.o: mema.s
+	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
+
 s99a.o: s99a.s
+	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
+
+dioa.o: dioa.s
 	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
 
 dio.o: dio.c $(IINCDIR)/dioint.h $(IINCDIR)/wrappers.h $(INCDIR)/*.h
