@@ -8,7 +8,7 @@ ARCHIVE=libdio.a
 
 OBJ_FILES=dio.o call31.o call31a.o s99.o s99a.o defaults.o json_parser.o \
   bpamio.o ztime.o memdir.o dio_utils.o util.o \
-  mem.o iosvcs.o ihadcb.o mema.o dioa.o msg.o
+  mem.o iosvcs.o ihadcb.o mema.o dioa.o 
 
 all: $(ARCHIVE)
 

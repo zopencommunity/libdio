@@ -1,7 +1,7 @@
 #ifndef __DESERV_H__
 #define __DESERV_H__
 
-#include "asmdiocommon.h"
+#include "diocommon.h"
 
 #pragma pack(1)
 

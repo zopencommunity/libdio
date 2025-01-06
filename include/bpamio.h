@@ -1,10 +1,9 @@
 #ifndef __BPAMIO_H__
   #define __BPAMIO_H__ 1
 
-  #include "asmdiocommon.h"
+  #include "diocommon.h"
   #include "fm.h"
   #include "dio.h"
-  #include "dbgopts.h"
 
   /*
    * struct mem_node: a pointer to this structure is returned from the call to pds_mem().
@@ -30,8 +29,8 @@
   struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, struct DFILE* dfile);
   void free_desp(struct desp* PTR32, struct DFILE* dfile);
 
-  int open_pds_for_write(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile);
-  int open_pds_for_read(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile);
+  int bpam_open_read(FM_BPAMHandle* handle, struct DFILE* dfile);
+  int bpam_open_write(FM_BPAMHandle* handle, struct DFILE* dfile);
 
   int find_member(FM_BPAMHandle* bh, const char* mem, struct DFILE* dfile);
   int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, struct DFILE* dfile);

@@ -12,15 +12,13 @@
 #include <sys/stat.h>
 #include <limits.h>
 
-#include "asmdiocommon.h"
+#include "diocommon.h"
 
 #include "util.h"
 #include "dio.h"
 #include "mem.h"
 #include "iosvcs.h"
 #include "fm.h"
-#include "fmopts.h"
-#include "msg.h"
 #include "bpamio.h"
 #include "findcb.h"
 #include "ispf.h"
@@ -102,12 +100,12 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   return 0;
 }
 
-static int bpam_open_read(FM_BPAMHandle* handle, struct DFILE* dfile)
+int bpam_open_read(FM_BPAMHandle* handle, struct DFILE* dfile)
 {
   return bpam_open(handle, OPEN_INPUT, dfile);
 }
 
-static int bpam_open_write(FM_BPAMHandle* handle, struct DFILE* dfile)
+int bpam_open_write(FM_BPAMHandle* handle, struct DFILE* dfile)
 {
   return bpam_open(handle, OPEN_OUTPUT, dfile);
 }
@@ -554,24 +552,6 @@ static int alloc_pds(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile
   dbgmsg(dfile, "Allocated DD:%s to %s\n", bh->ddname, dataset);
 
   return 0;
-}
-
-int open_pds_for_read(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile)
-{
-  int rc = alloc_pds(dataset, bh, dfile);
-  if (!rc) {
-    rc = bpam_open_read(bh, dfile);
-  }
-  return rc;
-}
-
-int open_pds_for_write(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile)
-{
-  int rc = alloc_pds(dataset, bh, dfile);
-  if (!rc) {
-    rc = bpam_open_write(bh, dfile);
-  }
-  return rc;
 }
 
 int close_pds(FM_BPAMHandle* bh, struct DFILE* dfile)

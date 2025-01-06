@@ -4,7 +4,7 @@
   #include <glob.h>
   #include <sys/stat.h>
   #include <stddef.h>
-  #include "asmdiocommon.h"
+  #include "diocommon.h"
   #include "dio_utils.h"
 
   typedef struct {

@@ -92,6 +92,7 @@
     void* internal;
     int txtflag;
     int ccsid;
+    int debug;
   };
     
   /* CONSTANTS */

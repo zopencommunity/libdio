@@ -1,5 +1,5 @@
-#ifndef __ASMDIO_COMMON_H
-  #define __ASMDIO_COMMON_H
+#ifndef __DIO_COMMON_H
+  #define __DIO_COMMON_H
 
   #ifdef VSCODE
     #define PTR32

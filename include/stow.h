@@ -1,7 +1,7 @@
 #ifndef __STOW__
 #define __STOW__ 1
 
-#include "asmdiocommon.h"
+#include "diocommon.h"
 
 #pragma pack(1)
 

@@ -2,7 +2,7 @@
  * wrappers for C 31-bit or 64-bit functions
  */
 
-#include "asmdiocommon.h"
+#include "diocommon.h"
 
 #if AMODE==31
   #if 0

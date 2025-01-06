@@ -41,6 +41,23 @@ void errmsg(struct DFILE* dfile, const char* format, ...)
   va_end(arg_ptr);
 }
 
+
+void dbgmsg(struct DFILE* dfile, const char* format, ...)
+{
+  if (!dfile->debug) {
+    return;
+  }
+
+  va_list args;
+  va_start(args, format);
+
+  fprintf(stderr, "[DEBUG] ");
+  vfprintf(stderr, format, args);
+  fprintf(stderr, "\n");
+
+  va_end(args);
+}
+
 static enum DIOERR dsdd_alloc(struct DFILE* dfile, struct s99_common_text_unit* dsn, struct s99_common_text_unit* dd, struct s99_common_text_unit* disp)
 {
   struct s99rb* __ptr32 parms;
@@ -832,7 +849,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 enum DIOERR read_dataset(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
-  enum DIOERR rc = write_dataset_internal(dfile);
+  enum DIOERR rc = read_dataset_internal(dfile);
   if (difile->bpamhandle) {
     rc = read_dataset_internal_bpam(dfile);
   }
@@ -931,7 +948,10 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   char record[DS_MAX_REC_SIZE];
   int rc;
 
-  assert(difile->bpamhandle != NULL);
+  if (difile->bpamhandle == NULL) {
+    errmsg(dfile, "BPAM Handle is NULL, something went wrong.");
+    return 1; //TODO
+  }
   errno = 0;
 
   if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {

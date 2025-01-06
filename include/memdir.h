@@ -2,7 +2,6 @@
   #define __MEM_DIR__ 1
 
   #include <time.h>
-  #include "dbgopts.h"
   #include "fm.h"
 
   /*
@@ -49,7 +48,7 @@
     void*  _reserved;                           /* NULL (may change in the future) */
   };
 
-  MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, struct DFILE* dfile);
+  //MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, struct DFILE* dfile);
   struct mstat* readmemdir(MEMDIR* memdir, struct DFILE* dfile);
   int closememdir(MEMDIR* memdir, struct DFILE* dfile);
 

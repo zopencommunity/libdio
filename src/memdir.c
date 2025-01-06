@@ -586,51 +586,6 @@ static MEMDIR* merge_mstat(struct mstat* mn_mstat, size_t mn_members, struct mst
   return (MEMDIR*) mdi;
 }
 
-MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, struct DFILE* dfile)
-{
-  FM_BPAMHandle bh;
-  size_t de_members;
-  size_t mn_members;
-  if (open_pds_for_read(dataset, &bh, dfile)) {
-    return NULL;
-  }
-  struct mem_node* np = pds_mem(&bh, dfile);
-  struct desp* PTR32 desp = get_desp_all(&bh, dfile);
-  if (np == NULL || desp == NULL) {
-    return NULL;
-  }
-  struct mstat* de_mstat = desp_to_mstats(desp, dfile, &de_members);
-  struct mstat* mn_mstat = memnodes_to_mstats(np, dfile, &mn_members);
-
-  //TODO:
-  //if (opts->debug) {
-   // printf("Members before merge:\n");
-    //print_members(mn_mstat, mn_members);
-   // print_members(de_mstat, de_members);
-  //}
-
-  return merge_mstat(mn_mstat, mn_members, de_mstat, de_members, sort_time, sort_reverse, dfile);
-}
-
-struct mstat* readmemdir(MEMDIR* memdir, struct DFILE* dfile)
-{
-  struct MEMDIR_Internal* mdi = (struct MEMDIR_Internal*) memdir;
-  if (mdi->cur == mdi->entries) {
-    return NULL;
-  } else {
-    return &mdi->head[mdi->cur++];
-  }
-}
-
-int closememdir(MEMDIR* memdir, struct DFILE* dfile)
-{
-  struct MEMDIR_Internal* mdi = (struct MEMDIR_Internal*) memdir;
-  free_mstat(mdi->head, mdi->entries);
-  free(mdi);
-
-  return 0;
-}
-
 /*
  * msf - may want to either push read/write member directory services to bpamio
  * or pull them all back and put them into memdir.
