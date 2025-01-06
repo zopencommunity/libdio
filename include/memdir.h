@@ -49,13 +49,13 @@
     void*  _reserved;                           /* NULL (may change in the future) */
   };
 
-  MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, const DBG_Opts* opts);
-  struct mstat* readmemdir(MEMDIR* memdir, const DBG_Opts* opts);
-  int closememdir(MEMDIR* memdir, const DBG_Opts* opts);
+  MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, struct DFILE* dfile);
+  struct mstat* readmemdir(MEMDIR* memdir, struct DFILE* dfile);
+  int closememdir(MEMDIR* memdir, struct DFILE* dfile);
 
-  int writememdir_entry(FM_BPAMHandle* bh, const struct mstat* mstat, const DBG_Opts* opts);
-  int readmemdir_entry(FM_BPAMHandle* bh, const char* memname, struct mstat* mstat, const DBG_Opts* opts);
+  int writememdir_entry(FM_BPAMHandle* bh, const struct mstat* mstat, struct DFILE* dfile);
+  int readmemdir_entry(FM_BPAMHandle* bh, const char* memname, struct mstat* mstat, struct DFILE* dfile);
 
-  int ispf_enq_dataset_member(const char* dataset, const char* wmem);
-  int ispf_deq_dataset_member(const char* dataset, const char* wmem);
+  int ispf_enq_dataset_member(const char* dataset, const char* wmem, struct DFILE* dfile);
+  int ispf_deq_dataset_member(const char* dataset, const char* wmem, struct DFILE* dfile);
 #endif

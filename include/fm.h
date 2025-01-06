@@ -5,7 +5,7 @@
   #include <sys/stat.h>
   #include <stddef.h>
   #include "asmdiocommon.h"
-  #include "dio_new.h"
+  #include "dio_utils.h"
 
   typedef struct {
     int cur_value;
@@ -25,7 +25,7 @@
   } FM_Table;
 
   typedef struct {
-    char ddname[DD_MAX+1];
+    char* ddname;
     struct ihadcb* PTR32 dcb;
     struct opencb* PTR32 opencb;
     struct decb* PTR32 decb;

@@ -116,7 +116,7 @@ static void print_members(struct mstat* mstat_arr, size_t members)
   }
 }
 
-static struct mstat* memnode_to_mstat(const struct mem_node* np, struct mstat* mstat, const DBG_Opts* opts)
+static struct mstat* memnode_to_mstat(const struct mem_node* np, struct mstat* mstat, struct DFILE* dfile)
 {
   char* alias_name;
   char* name;
@@ -176,7 +176,7 @@ static struct mstat* memnode_to_mstat(const struct mem_node* np, struct mstat* m
   return mstat;
 }
 
-static struct mstat* memnodes_to_mstats(const struct mem_node* np, const DBG_Opts* opts, size_t* members)
+static struct mstat* memnodes_to_mstats(const struct mem_node* np, struct DFILE* dfile, size_t* members)
 {
   /*
    * Allocate array of mstat entries for all names coming from the PDS directory.
@@ -206,7 +206,7 @@ static struct mstat* memnodes_to_mstats(const struct mem_node* np, const DBG_Opt
   cur_np = np;
   int entry = 0;
   while (cur_np) {
-    if (!memnode_to_mstat(cur_np, &mstat[entry], opts)) {
+    if (!memnode_to_mstat(cur_np, &mstat[entry], dfile)) {
       return NULL;
     }
     cur_np = cur_np->next;
@@ -276,7 +276,7 @@ static struct mstat* desp_copy_name_and_alias(struct mstat* mstat, const struct 
 }
 
 
-static struct mstat* smde_to_mstat(const struct smde* PTR32 smde, struct mstat* mstat, const DBG_Opts* opts)
+static struct mstat* smde_to_mstat(const struct smde* PTR32 smde, struct mstat* mstat, struct DFILE* dfile)
 {
   /*
    * Copy name, alias, and extended attributes.
@@ -309,7 +309,7 @@ static struct mstat* smde_to_mstat(const struct smde* PTR32 smde, struct mstat* 
   return mstat;
 }
 
-static struct mstat* desp_to_mstats(const struct desp* PTR32 desp, const DBG_Opts* opts, size_t* tot_members)
+static struct mstat* desp_to_mstats(const struct desp* PTR32 desp, struct DFILE* dfile, size_t* tot_members)
 {
   /*
    * Allocate array of mstat entries for all names coming from the Directory Entry Services
@@ -347,7 +347,7 @@ static struct mstat* desp_to_mstats(const struct desp* PTR32 desp, const DBG_Opt
      */
     struct smde* PTR32 smde = (struct smde* PTR32) (cur_desb->desb_data);
     for (i=0; i<sub_members; ++i) {
-      if (!smde_to_mstat(smde, &mstat[entry], opts)) {
+      if (!smde_to_mstat(smde, &mstat[entry], dfile)) {
         return NULL;
       }
       smde = (struct smde* PTR32) (((char*) smde) + smde->smde_len);
@@ -478,10 +478,10 @@ static void free_mstat(struct mstat* mstat, size_t entries)
   }
 }
 
-static MEMDIR* merge_mstat(struct mstat* mn_mstat, size_t mn_members, struct mstat* de_mstat, size_t de_members, int sort_time, int sort_reverse, const DBG_Opts* opts)
+static MEMDIR* merge_mstat(struct mstat* mn_mstat, size_t mn_members, struct mstat* de_mstat, size_t de_members, int sort_time, int sort_reverse, struct DFILE* dfile)
 {
   if (mn_members != de_members) {
-    fprintf(stderr, 
+    errmsg(dfile, 
       "Internal error: Directory has %d members and alias but Directory Entry Services reports %d members aliases. These should be the same.\n", 
       mn_members, de_members);
     return NULL;
@@ -578,39 +578,41 @@ static MEMDIR* merge_mstat(struct mstat* mn_mstat, size_t mn_members, struct mst
     }
   }
 
-  if (opts->debug) {
-    print_members(merge_mstat, entries);
-  }
+  //TODO
+  //if (opts->debug) {
+  //  print_members(merge_mstat, entries);
+  //}
     
   return (MEMDIR*) mdi;
 }
 
-MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, const DBG_Opts* opts)
+MEMDIR* openmemdir(const char* dataset, int sort_time, int sort_reverse, struct DFILE* dfile)
 {
   FM_BPAMHandle bh;
   size_t de_members;
   size_t mn_members;
-  if (open_pds_for_read(dataset, &bh, opts)) {
+  if (open_pds_for_read(dataset, &bh, dfile)) {
     return NULL;
   }
-  struct mem_node* np = pds_mem(&bh, opts);
-  struct desp* PTR32 desp = get_desp_all(&bh, opts);
+  struct mem_node* np = pds_mem(&bh, dfile);
+  struct desp* PTR32 desp = get_desp_all(&bh, dfile);
   if (np == NULL || desp == NULL) {
     return NULL;
   }
-  struct mstat* de_mstat = desp_to_mstats(desp, opts, &de_members);
-  struct mstat* mn_mstat = memnodes_to_mstats(np, opts, &mn_members);
+  struct mstat* de_mstat = desp_to_mstats(desp, dfile, &de_members);
+  struct mstat* mn_mstat = memnodes_to_mstats(np, dfile, &mn_members);
 
-  if (opts->debug) {
-    printf("Members before merge:\n");
-    print_members(mn_mstat, mn_members);
-    print_members(de_mstat, de_members);
-  }
+  //TODO:
+  //if (opts->debug) {
+   // printf("Members before merge:\n");
+    //print_members(mn_mstat, mn_members);
+   // print_members(de_mstat, de_members);
+  //}
 
-  return merge_mstat(mn_mstat, mn_members, de_mstat, de_members, sort_time, sort_reverse, opts);
+  return merge_mstat(mn_mstat, mn_members, de_mstat, de_members, sort_time, sort_reverse, dfile);
 }
 
-struct mstat* readmemdir(MEMDIR* memdir, const DBG_Opts* opts)
+struct mstat* readmemdir(MEMDIR* memdir, struct DFILE* dfile)
 {
   struct MEMDIR_Internal* mdi = (struct MEMDIR_Internal*) memdir;
   if (mdi->cur == mdi->entries) {
@@ -620,7 +622,7 @@ struct mstat* readmemdir(MEMDIR* memdir, const DBG_Opts* opts)
   }
 }
 
-int closememdir(MEMDIR* memdir, const DBG_Opts* opts)
+int closememdir(MEMDIR* memdir, struct DFILE* dfile)
 {
   struct MEMDIR_Internal* mdi = (struct MEMDIR_Internal*) memdir;
   free_mstat(mdi->head, mdi->entries);
@@ -634,12 +636,12 @@ int closememdir(MEMDIR* memdir, const DBG_Opts* opts)
  * or pull them all back and put them into memdir.
  * Right now, it's odd having a bit of both in both.
  */
-int writememdir_entry(FM_BPAMHandle* bh, const struct mstat* mstat, const DBG_Opts* opts)
+int writememdir_entry(FM_BPAMHandle* bh, const struct mstat* mstat, struct DFILE* dfile)
 {
-  return write_member_dir_entry(mstat, bh, opts);
+  return write_member_dir_entry(mstat, bh, dfile);
 }
 
-int readmemdir_entry(FM_BPAMHandle* bh, const char* mem, struct mstat* mstat, const DBG_Opts* opts)
+int readmemdir_entry(FM_BPAMHandle* bh, const char* mem, struct mstat* mstat, struct DFILE* dfile)
 {
   /*
    * Find the SMDE for the member and then find the mem_node for the member.
@@ -649,7 +651,7 @@ int readmemdir_entry(FM_BPAMHandle* bh, const char* mem, struct mstat* mstat, co
   struct desp* PTR32 desp;
   struct smde* PTR32 smde;
 
-  desp = find_desp(bh, mem, opts);
+  desp = find_desp(bh, mem, dfile);
   if (!desp) {
     return 4;
   }
@@ -657,16 +659,16 @@ int readmemdir_entry(FM_BPAMHandle* bh, const char* mem, struct mstat* mstat, co
   smde = (struct smde* PTR32) (desp->desp_area_ptr->desb_data);
 
   struct mstat smde_mstat = { 0 };
-  if (!smde_to_mstat(smde, &smde_mstat, opts)) {
+  if (!smde_to_mstat(smde, &smde_mstat, dfile)) {
     return 4;
   }
 
   struct mem_node match_node = { 0 };
-  if (!find_mem(bh, mem, &match_node, opts)) {
+  if (!find_mem(bh, mem, &match_node, dfile)) {
     return 4;
   }
   struct mstat memnode_mstat = { 0 };
-  if (!memnode_to_mstat(&match_node, &memnode_mstat, opts)) {
+  if (!memnode_to_mstat(&match_node, &memnode_mstat, dfile)) {
     return 4;
   }
 
@@ -685,27 +687,27 @@ int readmemdir_entry(FM_BPAMHandle* bh, const char* mem, struct mstat* mstat, co
     mstat->ext_changed = smde_mstat.ext_changed;
   }
 
-  free_desp(desp, opts);
+  free_desp(desp, dfile);
 
-  if (opts->debug) {
-    print_members(mstat, 1);
-  }
+//  if (opts->debug) {
+//    print_members(mstat, 1);
+//  }
   return 0;
 }
 
-static char* PTR32 ispf_rname(const char* ds, const char* mem)
+static char* PTR32 ispf_rname(const char* ds, const char* mem, struct DFILE* dfile)
 {
   unsigned int rname_len = strlen(ds) + strlen(mem);
 
   if (rname_len > 44+8) {
-    fprintf(stderr, "Invalid dataset or member name passed to ENQ/DEQ %s(%s)\n", ds, mem);
+    errmsg(dfile, "Invalid dataset or member name passed to ENQ/DEQ %s(%s)\n", ds, mem);
     return NULL;
   }
 
   char* PTR32 rname;
   rname = MALLOC31(52+1);
   if (!rname) {
-    fprintf(stderr, "Unable to obtain storage for ENQ/DEQ\n");
+    errmsg(dfile, "Unable to obtain storage for ENQ/DEQ\n");
     return NULL;
   }
   sprintf(rname, "%-44s%-8s", ds, mem);
@@ -713,19 +715,19 @@ static char* PTR32 ispf_rname(const char* ds, const char* mem)
   return rname;
 }
 
-static char* PTR32 ispf_qname(const char* qn)
+static char* PTR32 ispf_qname(const char* qn, struct DFILE* dfile)
 {
   unsigned int qname_len = strlen(qn);
 
   if (qname_len > 8) {
-    fprintf(stderr, "Invalid queue name passed to ENQ/DEQ %s\n", qn);
+    errmsg(dfile, "Invalid queue name passed to ENQ/DEQ %s\n", qn);
     return NULL;
   }
 
   char* PTR32 qname;
   qname = MALLOC31(8+1);
   if (!qname) {
-    fprintf(stderr, "Unable to obtain storage for ENQ/DEQ\n");
+    errmsg(dfile, "Unable to obtain storage for ENQ/DEQ\n");
     return NULL;
   }
   sprintf(qname, "%-8s", qn);
@@ -733,10 +735,10 @@ static char* PTR32 ispf_qname(const char* qn)
   return qname;
 }
 
-int ispf_enq_dataset_member(const char* ds, const char* wmem) 
+int ispf_enq_dataset_member(const char* ds, const char* wmem, struct DFILE* dfile) 
 {
-  char* PTR32 rname = ispf_rname(ds, wmem);
-  char* PTR32 qname = ispf_qname("SPFEDIT");
+  char* PTR32 rname = ispf_rname(ds, wmem, dfile);
+  char* PTR32 qname = ispf_qname("SPFEDIT", dfile);
 
   if (!rname || !qname) {
     return 4;
@@ -747,10 +749,10 @@ int ispf_enq_dataset_member(const char* ds, const char* wmem)
   return rc;
 }
 
-int ispf_deq_dataset_member(const char* ds, const char* wmem) 
+int ispf_deq_dataset_member(const char* ds, const char* wmem, struct DFILE* dfile) 
 {
-  char* PTR32 rname = ispf_rname(ds, wmem);
-  char* PTR32 qname = ispf_qname("SPFEDIT");
+  char* PTR32 rname = ispf_rname(ds, wmem, dfile);
+  char* PTR32 qname = ispf_qname("SPFEDIT", dfile);
 
   if (!rname || !qname) {
     return 4;

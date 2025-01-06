@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "asmdiocommon.h"
-#include "dio_new.h"
+#include "dio_utils.h"
 #include "mem.h"
 #include "stow.h"
 #include "util.h"

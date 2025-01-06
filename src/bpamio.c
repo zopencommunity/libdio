@@ -15,7 +15,7 @@
 #include "asmdiocommon.h"
 
 #include "util.h"
-#include "dio_new.h"
+#include "dio.h"
 #include "mem.h"
 #include "iosvcs.h"
 #include "fm.h"
@@ -27,7 +27,7 @@
 #include "ztime.h"
 #include "memdir.h"
 
-static int bpam_open(FM_BPAMHandle* handle, int mode, const DBG_Opts* opts)
+static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
 {
   struct ihadcb* PTR32 dcb;
   struct opencb* PTR32 opencb;
@@ -39,7 +39,7 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, const DBG_Opts* opts)
 
   dcb = dcb_init(handle->ddname);
   if (!dcb) {
-    fprintf(stderr, "Unable to obtain storage for OPEN dcb\n");
+    errmsg(dfile, "Unable to obtain storage for OPEN dcb\n");
     return 4;
   }
 
@@ -57,13 +57,13 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, const DBG_Opts* opts)
       dcb->dcbmacr.dcbmacr2 = dcbmrwrt|dcbmrpt2;
       break;
     default:
-      fprintf(stderr, "bpam_open function only supports INPUT and OUTPUT. %d specified\n", mode);
+      errmsg(dfile, "bpam_open function only supports INPUT and OUTPUT. %d specified\n", mode);
       return 4;
   }
 
   opencb = MALLOC31(sizeof(struct opencb));
   if (!opencb) {
-    fprintf(stderr, "Unable to obtain storage for OPEN cb\n");
+    errmsg(dfile, "Unable to obtain storage for OPEN cb\n");
     return 4;
   }
   *opencb = opencb_template;
@@ -72,23 +72,23 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, const DBG_Opts* opts)
 
   rc = OPEN(opencb);
   if (rc) {
-    fprintf(stderr, "Unable to perform OPEN. rc:%d\n", rc);
+    errmsg(dfile, "Unable to perform OPEN. rc:%d\n", rc);
     return rc;
   }
 
   if (!dcb->dcbdsgpo) {
-    fprintf(stderr, "Dataset is not a PDSE.\n");
+    errmsg(dfile, "Dataset is not a PDSE.\n");
     return 4;
   }
 
   decb = MALLOC24(sizeof(struct decb));
   if (!decb) {
-    fprintf(stderr, "Unable to obtain storage for WRITE decb\n");
+    errmsg(dfile, "Unable to obtain storage for WRITE decb\n");
     return 4;
   }
   block = MALLOC24(dcb->dcbblksi);
   if (!block) {
-    fprintf(stderr, "Unable to obtain storage for WRITE block\n");
+    errmsg(dfile, "Unable to obtain storage for WRITE block\n");
     return 4;
   }
 
@@ -102,41 +102,41 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, const DBG_Opts* opts)
   return 0;
 }
 
-static int bpam_open_read(FM_BPAMHandle* handle, const DBG_Opts* opts)
+static int bpam_open_read(FM_BPAMHandle* handle, struct DFILE* dfile)
 {
-  return bpam_open(handle, OPEN_INPUT, opts);
+  return bpam_open(handle, OPEN_INPUT, dfile);
 }
 
-static int bpam_open_write(FM_BPAMHandle* handle, const DBG_Opts* opts)
+static int bpam_open_write(FM_BPAMHandle* handle, struct DFILE* dfile)
 {
-  return bpam_open(handle, OPEN_OUTPUT, opts);
+  return bpam_open(handle, OPEN_OUTPUT, dfile);
 }
 
 
-static void validate_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
+static void validate_block(FM_BPAMHandle* bh, struct DFILE* dfile)
 {
-  if (!opts->debug) {
-    return;
-  }
+  //if (!opts->debug) {
+   // return;
+  //}
 
   char* block_char = (char*) (bh->block);
   unsigned short* block_hw = (unsigned short*) (bh->block);
   unsigned short block_size = block_hw[0];
 
-  debug(opts, "Validate Block: Block Size: %d\n", block_size);
+  dbgmsg(dfile, "Validate Block: Block Size: %d\n", block_size);
   char* next_rec_start = &(((char*)block_hw)[4]);
   while ((next_rec_start - block_char) < block_size) {
     unsigned short rec_length = *((unsigned short*) next_rec_start); 
-    debug(opts, "Record %d Length: %d\n", bh->line_num, rec_length);
+    dbgmsg(dfile, "Record %d Length: %d\n", bh->line_num, rec_length);
     if (rec_length < 4) {
-      fprintf(stderr, "Unexpected record length. Validation Failed.\n");
+      errmsg(dfile, "Unexpected record length. Validation Failed.\n");
       exit(4);
     }
     next_rec_start = &next_rec_start[rec_length];
     bh->line_num++;
   }
   if (next_rec_start - block_char != block_size) {
-    fprintf(stderr, "Total record length did not match block size: (%d,%d)\n", next_rec_start - block_char, block_size);
+    errmsg(dfile, "Total record length did not match block size: (%d,%d)\n", next_rec_start - block_char, block_size);
     exit(4);
   }
 }
@@ -144,14 +144,14 @@ static void validate_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
 /*
  * Read block.
  */
-int read_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
+int read_block(FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   const struct decb decb_template = { 0, 0x8020 };
   *(bh->decb) = decb_template;
   SET_24BIT_PTR(bh->decb->dcb24, bh->dcb);
   bh->decb->area = bh->block;
 
-  debug(opts, "FB:%c VB:%c bytes_used:%d block_size:%d\n",
+  dbgmsg(dfile, "FB:%c VB:%c bytes_used:%d block_size:%d\n",
     (bh->dcb->dcbexlst.dcbrecfm & dcbrecf) ? 'Y' : 'N',
     (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) ? 'Y' : 'N',
     bh->bytes_used,
@@ -161,25 +161,23 @@ int read_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
   /* Read one block */
   int rc = READ(bh->decb);
   if (rc) {
-    fprintf(stderr, "Unable to perform READ. rc:%d\n", rc);
+    errmsg(dfile, "Unable to perform READ. rc:%d\n", rc);
     return rc;
   }
-  rc = CHECK(bh->decb);
-
   return 0;
 }
 
 /*
  * Write out a block. Returns 0 if successful, non-zero otherwise
  */
-int write_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
+int write_block(FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   const struct decb decb_template = { 0, 0x8020 };
   *(bh->decb) = decb_template;
   SET_24BIT_PTR(bh->decb->dcb24, bh->dcb);
   bh->decb->area = bh->block;
 
-  debug(opts, "FB:%c VB:%c bytes_used:%d block_size:%d\n", 
+  dbgmsg(dfile, "FB:%c VB:%c bytes_used:%d block_size:%d\n", 
     (bh->dcb->dcbexlst.dcbrecfm & dcbrecf) ? 'Y' : 'N', 
     (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) ? 'Y' : 'N', 
     bh->bytes_used, 
@@ -195,19 +193,19 @@ int write_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
     halfword[3] = 0;
     bh->dcb->dcbblksi = bh->block_size;
 
-    validate_block(bh, opts);
-    debug(opts, "(Block Write) First Record length:%d bytes used:%d\n", halfword[2], halfword[0]);
+    //TODO:validate_block(bh, dfile);
+    dbgmsg(dfile, "(Block Write) First Record length:%d bytes used:%d\n", halfword[2], halfword[0]);
 
   } else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf) { 
     bh->dcb->dcbblksi = bh->bytes_used;
   } else {
-    fprintf(stderr, "Not sure how to write a block that is not recv or recf\n");
+    errmsg(dfile, "Not sure how to write a block that is not recv or recf\n");
     return 4;
   }
 
   int rc = WRITE(bh->decb);
   if (rc) {
-    fprintf(stderr, "Unable to perform WRITE. rc:%d\n", rc);
+    errmsg(dfile, "Unable to perform WRITE. rc:%d\n", rc);
     return rc;
   }
 
@@ -222,7 +220,7 @@ int write_block(FM_BPAMHandle* bh, const DBG_Opts* opts)
 
 const struct desp desp_template = { { { "IGWDESP ", sizeof(struct desp), 1, 0 } } };
 const struct decb decb_template = { 0, 0x8080 };
-struct desp* PTR32 get_desp_all(const FM_BPAMHandle* bh, const DBG_Opts* opts)
+struct desp* PTR32 get_desp_all(const FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   struct desp* PTR32 desp;
   struct desl* PTR32 desl;
@@ -234,7 +232,7 @@ struct desp* PTR32 get_desp_all(const FM_BPAMHandle* bh, const DBG_Opts* opts)
 
   desp = MALLOC31(sizeof(struct desp));
   if (!desp) {
-    fprintf(stderr, "Unable to obtain storage for DESERV\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV\n");
     return NULL;
   }
 
@@ -255,7 +253,7 @@ struct desp* PTR32 get_desp_all(const FM_BPAMHandle* bh, const DBG_Opts* opts)
   int desb_len = sizeof(struct desb);
   desb = MALLOC31(desb_len);
   if (!desb) {
-    fprintf(stderr, "Unable to obtain storage for DESB area\n");
+    errmsg(dfile, "Unable to obtain storage for DESB area\n");
     return NULL;
   }
 
@@ -266,14 +264,14 @@ struct desp* PTR32 get_desp_all(const FM_BPAMHandle* bh, const DBG_Opts* opts)
   /* call DESERV and get extended attributes */
   rc = DESERV(desp);
   if (rc) {
-    fprintf(stderr, "Unable to PERFORM DESERV GET_ALL. rc:0x%x\n", rc);
+    errmsg(dfile, "Unable to PERFORM DESERV GET_ALL. rc:0x%x\n", rc);
     return NULL;
   }
 
   return desp;
 }
 
-struct desp* PTR32 init_desp(const FM_BPAMHandle* bh, const char* mem, const DBG_Opts* opts)
+struct desp* PTR32 init_desp(const FM_BPAMHandle* bh, const char* mem, struct DFILE* dfile)
 {
 
   struct desp* PTR32 desp;
@@ -288,17 +286,17 @@ struct desp* PTR32 init_desp(const FM_BPAMHandle* bh, const char* mem, const DBG
 
   desp = MALLOC31(sizeof(struct desp));
   if (!desp) {
-    fprintf(stderr, "Unable to obtain storage for DESERV\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV\n");
     return NULL;
   }
   desl = MALLOC31(sizeof(struct desl));
   if (!desl) {
-    fprintf(stderr, "Unable to obtain storage for DESERV DESL\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV DESL\n");
     return NULL;
   }
   desl_name = MALLOC31(sizeof(struct desl_name));
   if (!desl_name) {
-    fprintf(stderr, "Unable to obtain storage for DESERV DESL NAME\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV DESL NAME\n");
     return NULL;
   }
   desl_name->desl_name_len = memlen;
@@ -324,7 +322,7 @@ struct desp* PTR32 init_desp(const FM_BPAMHandle* bh, const char* mem, const DBG
   int desb_len = sizeof(struct desb) + SMDE_NAME_MAXLEN;
   desb = MALLOC31(desb_len);
   if (!desb) {
-    fprintf(stderr, "Unable to obtain storage for DESB area\n");
+    errmsg(dfile, "Unable to obtain storage for DESB area\n");
     return NULL;
   }
   desp->desp_area_ptr = desb;
@@ -339,7 +337,7 @@ struct desp* PTR32 init_desp(const FM_BPAMHandle* bh, const char* mem, const DBG
   return desp;
 }
 
-int find_member(FM_BPAMHandle* bh, const char* mem, const DBG_Opts* opts)
+int find_member(FM_BPAMHandle* bh, const char* mem, struct DFILE* dfile)
 {
   const struct findcb findcb_template = { "        " };
   size_t memlen = strlen(mem);
@@ -347,7 +345,7 @@ int find_member(FM_BPAMHandle* bh, const char* mem, const DBG_Opts* opts)
   /* Call FIND to find the start of the member */
   struct findcb* PTR32 findcb = MALLOC31(sizeof(struct findcb));
   if (!findcb) {
-    fprintf(stderr, "Unable to obtain storage for FIND macro\n");
+    errmsg(dfile, "Unable to obtain storage for FIND macro\n");
     return 4;
   }
   *findcb = findcb_template;
@@ -358,29 +356,29 @@ int find_member(FM_BPAMHandle* bh, const char* mem, const DBG_Opts* opts)
   free(findcb);
 
   if (rc) {
-    fprintf(stderr, "Unable to perform FIND. rc:%d\n", rc);
+    errmsg(dfile, "Unable to perform FIND. rc:%d\n", rc);
     return rc;
   }
 
   return 0;
 }
 
-int read_member_dir_entry(struct desp* PTR32 desp, const DBG_Opts* opts)
+int read_member_dir_entry(struct desp* PTR32 desp, struct DFILE* dfile)
 {
   /* call DESERV and get extended attributes */
   int rc = DESERV(desp);
   if (rc) {
-    fprintf(stderr, "Unable to PERFORM DESERV. rc:0x%x\n", rc);
+    errmsg(dfile, "Unable to PERFORM DESERV. rc:0x%x\n", rc);
     return 4;
   }
 
   struct smde* PTR32 smde = (struct smde* PTR32) (desp->desp_area_ptr->desb_data);
-  debug(opts, "Extended attributes for %.*s\n", desp->desp_name_list_ptr->desl_name_ptr->desl_name_len, desp->desp_name_list_ptr->desl_name_ptr->desl_name);
+  dbgmsg(dfile, "Extended attributes for %.*s\n", desp->desp_name_list_ptr->desl_name_ptr->desl_name_len, desp->desp_name_list_ptr->desl_name_ptr->desl_name);
   if (smde->smde_ext_attr_off == 0) {
-    debug(opts, "(no extended attributes) SMDE Address:%p SMDE Eye-catcher %8.8s\n", smde, smde->smde_id);
+    dbgmsg(dfile, "(no extended attributes) SMDE Address:%p SMDE Eye-catcher %8.8s\n", smde, smde->smde_id);
   } else {
     struct smde_ext_attr* PTR32 ext_attr = (struct smde_ext_attr*) (((char*) smde) + smde->smde_ext_attr_off);
-    debug(opts, "CCSID: 0x%x%x last change userid: %8.8s change timestamp: 0x%llx\n",
+    dbgmsg(dfile, "CCSID: 0x%x%x last change userid: %8.8s change timestamp: 0x%llx\n",
       ext_attr->smde_ccsid[0], ext_attr->smde_ccsid[1], ext_attr->smde_userid_last_change, *((long long*) ext_attr->smde_change_timestamp));
   }
 
@@ -443,33 +441,33 @@ static void add_mem_stats(struct stowlist_add* PTR32 sla, const struct mstat* ms
   memcpy(sla->user_data, &ids, sizeof(struct ispf_disk_stats));
 }
 
-static int write_pds_member_dir_entry(struct ihadcb* PTR32 dcb, const char* member, struct stowlist_add* stowlistadd, const DBG_Opts* opts)
+static int write_pds_member_dir_entry(struct ihadcb* PTR32 dcb, const char* member, struct stowlist_add* stowlistadd, struct DFILE* dfile)
 {
   union stowlist* stowlist;
 
   stowlist = MALLOC24(sizeof(struct stowlist_add));
   if (!stowlist) {
-    fprintf(stderr, "Unable to obtain storage for STOW\n");
+    errmsg(dfile, "Unable to obtain storage for STOW\n");
     return 4;
   }
   stowlist->add = *stowlistadd;
 
   int rc = STOW(stowlist, dcb, STOW_R);
   if (rc == STOW_REPLACE_MEMBER_DOES_NOT_EXIST || rc == STOW_CC_OK) {
-    debug(opts, "Member %s successfully replaced\n", member);
+    dbgmsg(dfile, "Member %s successfully replaced\n", member);
     rc = 0;
   } else {
-    fprintf(stderr, "STOW REPLACE failed for PDS member %s with rc:%d\n", member, rc);
+    errmsg(dfile, "STOW REPLACE failed for PDS member %s with rc:%d\n", member, rc);
   }
 
   return rc;
 }
 
-static int update_pdse_member_dir_entry(FM_BPAMHandle* bh, const char* member, union stowlist* stowlist, const DBG_Opts* opts)
+static int update_pdse_member_dir_entry(FM_BPAMHandle* bh, const char* member, union stowlist* stowlist, struct DFILE* dfile)
 {
   int rc;
-  struct desp* PTR32 desp = init_desp(bh, member, opts);
-  if (!read_member_dir_entry(desp, opts)) {
+  struct desp* PTR32 desp = init_desp(bh, member, dfile);
+  if (!read_member_dir_entry(desp, dfile)) {
     /*
      * Try again and perform an UPDATE
      */
@@ -478,13 +476,13 @@ static int update_pdse_member_dir_entry(FM_BPAMHandle* bh, const char* member, u
     memcpy(stowlist->iff.timestamp, ext_attr->smde_change_timestamp, STOWLIST_IFF_TIMESTAMP_LEN);
     rc = STOW(stowlist, NULL, STOW_IFF);
     if (rc != STOW_CC_OK) {
-      fprintf(stderr, "STOW failed for PDSE member update of %s with rc:%d\n", member, rc);
+      errmsg(dfile, "STOW failed for PDSE member update of %s with rc:%d\n", member, rc);
     }
   }
   return rc;
 }
 
-int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, const DBG_Opts* opts)
+int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   const struct stowlist_iff stowlistiff_template = { sizeof(struct stowlist_iff), 0, 0, 0, 0, 0, 0, 0 };
   union stowlist* stowlist;
@@ -494,7 +492,7 @@ int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, const D
   int rc;
 
   if ((!stowlist) || (!stowlistadd)) {
-    fprintf(stderr, "Unable to obtain storage for STOW\n");
+    errmsg(dfile, "Unable to obtain storage for STOW\n");
     return 4;
   }
 
@@ -517,22 +515,22 @@ int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, const D
       rc = 0;
       break;
     case STOW_IFF_CC_PDS_UPDATE_UNSUPPORTED:
-      debug(opts, "Member %s is in a PDS - do a STOW and not a STOW_IFF\n", mstat->name);
+      dbgmsg(dfile, "Member %s is in a PDS - do a STOW and not a STOW_IFF\n", mstat->name);
       free(stowlist);
-      rc = write_pds_member_dir_entry(bh->dcb, mstat->name, stowlistadd, opts);
+      rc = write_pds_member_dir_entry(bh->dcb, mstat->name, stowlistadd, dfile);
       break;
     case STOW_IFF_CC_MEMBER_EXISTS:
-      debug(opts, "Member %s already exists - update it.\n", mstat->name);
-      rc = update_pdse_member_dir_entry(bh, mstat->name, stowlist, opts);
+      dbgmsg(dfile, "Member %s already exists - update it.\n", mstat->name);
+      rc = update_pdse_member_dir_entry(bh, mstat->name, stowlist, dfile);
       break;
     default:
-      fprintf(stderr, "STOW failed for member %s create. rc:0x%x\n", mstat->name, rc);
+      errmsg(dfile, "STOW failed for member %s create. rc:0x%x\n", mstat->name, rc);
       break;
   }
   return rc;
 }
 
-static int alloc_pds(const char* dataset, FM_BPAMHandle* bh, const DBG_Opts* opts)
+static int alloc_pds(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   struct s99_common_text_unit dsn = { DALDSNAM, 1, 0, 0 };
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
@@ -553,30 +551,30 @@ static int alloc_pds(const char* dataset, FM_BPAMHandle* bh, const DBG_Opts* opt
   memcpy(bh->ddname, dd.s99tupar, dd.s99tulng);
   bh->ddname[dd.s99tulng] = '\0';
 
-  debug(opts, "Allocated DD:%s to %s\n", bh->ddname, dataset);
+  dbgmsg(dfile, "Allocated DD:%s to %s\n", bh->ddname, dataset);
 
   return 0;
 }
 
-int open_pds_for_read(const char* dataset, FM_BPAMHandle* bh, const DBG_Opts* opts)
+int open_pds_for_read(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile)
 {
-  int rc = alloc_pds(dataset, bh, opts);
+  int rc = alloc_pds(dataset, bh, dfile);
   if (!rc) {
-    rc = bpam_open_read(bh, opts);
+    rc = bpam_open_read(bh, dfile);
   }
   return rc;
 }
 
-int open_pds_for_write(const char* dataset, FM_BPAMHandle* bh, const DBG_Opts* opts)
+int open_pds_for_write(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile)
 {
-  int rc = alloc_pds(dataset, bh, opts);
+  int rc = alloc_pds(dataset, bh, dfile);
   if (!rc) {
-    rc = bpam_open_write(bh, opts);
+    rc = bpam_open_write(bh, dfile);
   }
   return rc;
 }
 
-int close_pds(FM_BPAMHandle* bh, const DBG_Opts* opts)
+int close_pds(FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   const struct closecb closecb_template = { 1, 0, 0 };
   struct closecb* PTR32 closecb;
@@ -589,7 +587,7 @@ int close_pds(FM_BPAMHandle* bh, const DBG_Opts* opts)
 
   closecb = MALLOC31(sizeof(struct closecb));
   if (!closecb) {
-    fprintf(stderr, "Unable to obtain storage for CLOSE cb\n");
+    errmsg(dfile, "Unable to obtain storage for CLOSE cb\n");
     return 4;
   }
   *closecb = closecb_template;
@@ -597,12 +595,12 @@ int close_pds(FM_BPAMHandle* bh, const DBG_Opts* opts)
 
   rc = CLOSE(closecb);
   if (rc) {
-    fprintf(stderr, "Unable to perform CLOSE. rc:%d\n", rc);
+    errmsg(dfile, "Unable to perform CLOSE. rc:%d\n", rc);
     return rc;
   }
 
   rc = ddfree(&dd);
-  debug(opts, "Free DD:%s\n", bh->ddname);
+  dbgmsg(dfile, "Free DD:%s\n", bh->ddname);
 
   return rc;
 }
@@ -637,7 +635,7 @@ static char *add_member_node(struct mem_node** node, const char *name, int is_al
 
   newnode = (struct mem_node*)malloc(sizeof(struct mem_node));
   if (newnode == NULL) {
-    fprintf(stderr,"malloc failed for %d bytes\n",sizeof(struct mem_node));
+    //TODO:errmsg(dfile,"malloc failed for %d bytes\n",sizeof(struct mem_node));
     exit(-1);
   }
 
@@ -751,7 +749,7 @@ static int gen_node(struct mem_node** node, const RECORD *rec, struct mem_node**
    return(list_end);
 }
 
-struct mem_node* pds_mem(FM_BPAMHandle* bh, const DBG_Opts* opts)
+struct mem_node* pds_mem(FM_BPAMHandle* bh, struct DFILE* dfile)
 {
   struct mem_node* node, *last_ptr;
   RECORD* rec;
@@ -769,7 +767,7 @@ struct mem_node* pds_mem(FM_BPAMHandle* bh, const DBG_Opts* opts)
    * record read, to add member names to the linked list.
   */
 
-  while ((rc = read_block(bh, opts)) == 0) {
+  while ((rc = read_block(bh, dfile)) == 0) {
     for (offset = 0; offset < bh->dcb->dcbblksi; offset += sizeof(RECORD)) {
       rec = (RECORD*) &(((char*)bh->block)[offset]);
       list_end = gen_node(&node, rec, &last_ptr);
@@ -822,7 +820,7 @@ static int find_node(const char* memname, struct mem_node* match_node, const REC
    return(done);
 }
 
-struct mem_node* find_mem(FM_BPAMHandle* bh, const char* memname, struct mem_node* match_node, const DBG_Opts* opts)
+struct mem_node* find_mem(FM_BPAMHandle* bh, const char* memname, struct mem_node* match_node, struct DFILE* dfile)
 {
   RECORD* rec;
   int done;
@@ -841,7 +839,7 @@ struct mem_node* find_mem(FM_BPAMHandle* bh, const char* memname, struct mem_nod
    * record read, to add member names to the linked list.
   */
 
-  while ((rc = read_block(bh, opts)) == 0) {
+  while ((rc = read_block(bh, dfile)) == 0) {
     for (offset = 0; offset < bh->dcb->dcbblksi; offset += sizeof(RECORD)) {
       rec = (RECORD*) &(((char*)bh->block)[offset]);
       done = find_node(padmem, match_node, rec);
@@ -872,7 +870,7 @@ void free_mem(struct mem_node* node)
   return;
 }
 
-struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, const DBG_Opts* opts)
+struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, struct DFILE* dfile)
 {
   const struct desp desp_template = { { { "IGWDESP ", sizeof(struct desp), 1, 0 } } };
   size_t memlen = strlen(memname);
@@ -889,17 +887,17 @@ struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, const DBG_O
 
   desp = MALLOC31(sizeof(struct desp));
   if (!desp) {
-    fprintf(stderr, "Unable to obtain storage for DESERV\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV\n");
     return NULL;
   }
   desl = MALLOC31(sizeof(struct desl));
   if (!desl) {
-    fprintf(stderr, "Unable to obtain storage for DESERV DESL\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV DESL\n");
     return NULL;
   }
   desl_name = MALLOC31(sizeof(struct desl_name));
   if (!desl_name) {
-    fprintf(stderr, "Unable to obtain storage for DESERV DESL NAME\n");
+    errmsg(dfile, "Unable to obtain storage for DESERV DESL NAME\n");
     return NULL;
   }
   desl_name->desl_name_len = memlen;
@@ -925,7 +923,7 @@ struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, const DBG_O
   int desb_len = sizeof(struct desb) + SMDE_NAME_MAXLEN;
   desb = MALLOC31(desb_len);
   if (!desb) {
-    fprintf(stderr, "Unable to obtain storage for DESB area\n");
+    errmsg(dfile, "Unable to obtain storage for DESB area\n");
     return NULL;
   }
   desp->desp_area_ptr = desb;
@@ -939,14 +937,14 @@ struct desp* PTR32 find_desp(FM_BPAMHandle* bh, const char* memname, const DBG_O
   /* call DESERV and get extended attributes */
   int rc = DESERV(desp);
   if (rc) {
-    fprintf(stderr, "Unable to PERFORM DESERV. rc:0x%x\n", rc);
+    errmsg(dfile, "Unable to PERFORM DESERV. rc:0x%x\n", rc);
     return NULL;
   }
 
   return desp;
 }
 
-void free_desp(struct desp* PTR32 desp, const DBG_Opts* opts)
+void free_desp(struct desp* PTR32 desp, struct DFILE* dfile)
 {
   free(desp->desp_area_ptr);
   free(desp->desp_name_list_ptr->desl_name_ptr);

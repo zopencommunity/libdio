@@ -1,17 +1,11 @@
-#define _ENHANCED_ASCII_EXT 0xFFFFFFFF 
-#define _OPEN_SYS_FILE_EXT 1
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdarg.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include "s99.h"
 #include "dio.h"
 #include "dioint.h"
-#include "fm.h"
-#include "memdir.h"
 #include "wrappers.h"
 #include <_Nascii.h>
 #include <unistd.h>
@@ -20,7 +14,7 @@
 #define _OPEN_SYS_EXT
 #include <sys/ps.h>
 
-//#define DEBUG 1
+/*#define DEBUG 1*/
 #define DD_SYSTEM "????????"
 #define ERRNO_NONEXISTANT_FILE (67)
 #define DIO_MSG_BUFF_LEN (4095)
@@ -133,9 +127,9 @@ void strlower(char* str)
   }
 }
 
-int has_member(struct DFILE* dfile)
+
+static int has_member(struct DIFILE* difile)
 {
-  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
   return difile->member_name[0] != '\0';
 }
 
@@ -347,15 +341,13 @@ static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_na
   strupper(difile->mlqs);
   strupper(difile->llq);
 
-  initialize_configuration(difile->dataset_name, difile->llq, difile->unix_extension, &dfile->txtflag, &dfile->ccsid);
-  strlower(difile->unix_extension);
+  char extension[EXTENSION_MAX] = ".txt";
+  initialize_configuration(difile->llq, extension);
 
 #ifdef DEBUG
-  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
-  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s> text <%d> ccsid <%d>\n", 
+  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s>\n", 
     dataset_name, difile->dataset_full_name, difile->dataset_name, difile->member_name, 
-    difile->hlq, difile->mlqs, difile->llq, difile->unix_extension, dfile->txtflag, dfile->ccsid);
-  __ae_thread_setmode(prevMode);
+    difile->hlq, difile->mlqs, difile->llq, extension);
 #endif
   return DIOERR_NOERROR;
 }
@@ -437,7 +429,7 @@ static const char* dstates(enum DSTATE dstate)
 static FILE* opendd(struct DFILE* dfile, struct DIFILE* difile, const char* openfmt)
 {
  char copendd[DD_MAX+MEM_MAX+2+2+2+1+1];
-  if (has_member(dfile)) {
+  if (has_member(difile)) {
     sprintf(copendd, "//DD:%s(%s)", difile->ddname, difile->member_name);
   } else {
     sprintf(copendd, "//DD:%s", difile->ddname);
@@ -516,133 +508,97 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 #ifdef DEBUG
   printf("allocated ddname:%s\n", difile->ddname);
 #endif
-  
-  if (has_member(dfile)) {
-    FM_BPAMHandle* bh = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
-    bh->ddname = difile->ddname;
-    int rc = bpam_open_read(bh, dfile);
-    if (rc) {
-      fprintf(stderr, "Unable to open %s for read. rc:%d\n", bh->ddname, rc);
-      dfile->err = rc;
-      return dfile;
-    }
-    if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
-        dfile->recfm = D_F;
-    else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecu)
-        dfile->recfm = D_U;
-    else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv)
-        dfile->recfm = D_V;
-    else {
-      errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
-      dfile->err = DIOERR_UNSUPPORTED_RECFM;
-      return dfile;
-    }
-    dfile->reclen = bh->dcb->dcblrecl;
 
-    dfile->dsorg = D_PDSE;
-    difile->bpamhandle = bh;
+  /*
+   * Note - there is a timing window here and it is not efficient to 
+   * open the dataset twice (once to get the dataset characteristics and once to read or write)
+   * but this is 'good enough' for now since the C I/O services don't let us do better 
+   */
 
-    difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-    if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-      errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-      return dfile;
-    }
-
-    rc = find_member(difile->bpamhandle, difile->member_name);
-    if (rc) {
-      errmsg(dfile, "Unable to find %s(%s) for read. rc:%d\n",  difile->dataset_name, difile->member_name, rc);
-      return dfile;
-    }
-    // check for dfile->dsorg = D_PDS;
-    // TODO: check for read-only
+  difile->fp = opendd(dfile, difile, "rb+,type=record");
+  if (difile->fp) {
+    difile->dstate = D_READWRITE_BINARY;
   } else {
-    /*
-    * Note - there is a timing window here and it is not efficient to 
-    * open the dataset twice (once to get the dataset characteristics and once to read or write)
-    * but this is 'good enough' for now since the C I/O services don't let us do better 
-    */
-
-    difile->fp = opendd(dfile, difile, "rb+,type=record");
-    if (difile->fp) {
-      difile->dstate = D_READWRITE_BINARY;
+    if ((errno == ERRNO_NONEXISTANT_FILE) && has_member(difile)) {
+      /*
+       * This is a PDS or PDSE member, and the member does not exist yet.
+       * We need to open the member in write to get the attributes of the actual
+       * PDS(E) member, otherwise if we only specify the PDS(E), we will get
+       * the attributes for working with the PDS(E) directly, which is wrong (unformatted)
+       * This is 'ok' because if we don't have write access to the PDS(E) to create a 
+       * member, we should know this now now rather than later.
+       */
+     
+      difile->fp = opendd(dfile, difile, "wb,type=record");
+      if (!difile->fp) {
+        return dfile;
+      }
+      difile->dstate = D_WRITE_BINARY;
     } else {
-      if ((errno == ERRNO_NONEXISTANT_FILE) && has_member(dfile)) {
-        /*
-        * This is a PDS or PDSE member, and the member does not exist yet.
-        * We need to open the member in write to get the attributes of the actual
-        * PDS(E) member, otherwise if we only specify the PDS(E), we will get
-        * the attributes for working with the PDS(E) directly, which is wrong (unformatted)
-        * This is 'ok' because if we don't have write access to the PDS(E) to create a 
-        * member, we should know this now now rather than later.
-        */
-      
-        difile->fp = opendd(dfile, difile, "wb,type=record");
-        if (!difile->fp) {
-          return dfile;
-        }
-        difile->dstate = D_WRITE_BINARY;
+      /*
+       * Try to open 'rb' (perhaps file is write protected)
+       */
+      difile->fp = opendd(dfile, difile, "rb,type=record");
+      if (difile->fp) {
+        dfile->readonly = 1;
+        difile->dstate = D_READ_BINARY;
       } else {
-        /*
-        * Try to open 'rb' (perhaps file is write protected)
-        */
-        difile->fp = opendd(dfile, difile, "rb,type=record");
-        if (difile->fp) {
-          dfile->readonly = 1;
-          difile->dstate = D_READ_BINARY;
-        } else {
-          errmsg(dfile, "Unable to obtain dataset %s for READ.", dataset_name_copy);
-          dfile->err = DIOERR_FOPEN_FOR_READ_FAILED;
-          return dfile;
-        }
+        errmsg(dfile, "Unable to obtain dataset %s for READ.", dataset_name_copy);
+        dfile->err = DIOERR_FOPEN_FOR_READ_FAILED;
+        return dfile;
       }
     }
-
-    fldata_t info;
-    rc = __fldata(difile->fp, NULL, &info);
-    if (rc) {
-      errmsg(dfile, "Unable to obtain file information for %s.", dataset_name_copy);
-      close_dataset(dfile);
-      dfile->err = DIOERR_FLDATA_FAILED;
-      return dfile;
-    }
-
-    if (info.__recfmF) {
-      if (info.__recfmASA) {
-        dfile->recfm = D_FA;
-      } else {
-        dfile->recfm = D_F;
-      }
-    } else if (info.__recfmV) {
-      if (info.__recfmASA) {
-        dfile->recfm = D_VA;
-      } else {
-        dfile->recfm = D_V;
-      }
-    } else if (info.__recfmU) {
-      dfile->recfm = D_U;
-    } else {
-      errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
-      dfile->err = DIOERR_UNSUPPORTED_RECFM;
-      return dfile;
-    }
-
-    if (info.__dsorgPS) {
-      dfile->dsorg = D_SEQ;
-    } else {
-      errmsg(dfile, "Dataset %s is not PDS, PDSE, or SEQ organization. open_dataset not supported at this time.", dataset_name_copy);
-      dfile->err = DIOERR_UNSUPPORTED_RECFM;
-      return dfile;
-    }
-    dfile->reclen = info.__maxreclen;
   }
 
+  fldata_t info;
+  rc = __fldata(difile->fp, NULL, &info);
+  if (rc) {
+    errmsg(dfile, "Unable to obtain file information for %s.", dataset_name_copy);
+    close_dataset(dfile);
+    dfile->err = DIOERR_FLDATA_FAILED;
+    return dfile;
+  }
+
+  if (info.__recfmF) {
+    if (info.__recfmASA) {
+      dfile->recfm = D_FA;
+    } else {
+      dfile->recfm = D_F;
+    }
+  } else if (info.__recfmV) {
+    if (info.__recfmASA) {
+      dfile->recfm = D_VA;
+    } else {
+      dfile->recfm = D_V;
+    }
+  } else if (info.__recfmU) {
+    dfile->recfm = D_U;
+  } else {
+    errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
+    dfile->err = DIOERR_UNSUPPORTED_RECFM;
+    return dfile;
+  }
+
+  if (info.__dsorgPDSE) {
+    dfile->dsorg = D_PDSE;
+  } else if (info.__dsorgPO) {
+    dfile->dsorg = D_PDS;
+  } else if (info.__dsorgPS) {
+    dfile->dsorg = D_SEQ;
+  } else {
+    errmsg(dfile, "Dataset %s is not PDS, PDSE, or SEQ organization. open_dataset not supported at this time.", dataset_name_copy);
+    dfile->err = DIOERR_UNSUPPORTED_RECFM;
+    return dfile;
+  }
+
+  dfile->reclen = info.__maxreclen;
   dfile->dccsid = DCCSID_NOTSET; 
 
 #ifdef DEBUG
   char ccsidstr[DCCSID_MAX];
   printf("Dataset attributes: dsorg:%s recfm:%s lrecl:%d dstate:%s ccsid:%s\n", 
     dsorgs_internal(dfile->dsorg), recfms_internal(dfile->recfm), dfile->reclen, dstates(difile->dstate), dccsids(dfile->dccsid, ccsidstr));
-#endif // 0
+#endif
 
   return dfile;
 }
@@ -664,6 +620,7 @@ int has_length_prefix(enum DRECFM recfm)
 }
 
 #define INIT_READ_BUFFER_SIZE (1<<24) /* 16MB */
+#define DS_MAX_REC_SIZE (32768)
 static enum DIOERR read_dataset_internal(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
@@ -746,99 +703,9 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
   return DIOERR_NOERROR;
 }
 
-static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
-{
-  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
-  char record[DS_MAX_REC_SIZE];
-  int rc;
-
-  errno = 0;
-
-  if (difile->dstate == D_WRITE_BINARY) {
-    rc=close_pds(difile->bpamhandle, NULL);
-    if (rc) {
-      errmsg(dfile, strerror(errno));
-      return DIOERR_FCLOSE_FAILED_ON_READ;
-    }
-    difile->dstate = D_CLOSED;
-  }
-
-  if (difile->dstate == D_READWRITE_BINARY) {
-    //rewind(difile->fp);
-    //TODO
-  }
-
-  //TODO
-  if (difile->dstate == D_CLOSED) {
-    return 1;
-  }
-  difile->dstate = D_READWRITE_BINARY;
-
-  if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
-    difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
-    if (!dfile->buffer) {
-      errmsg(dfile, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
-      return DIOERR_READ_BUFFER_ALLOC_FAILED;
-    }
-  }
-  difile->cur_read_offset = 0;
-
-  int length_prefix = has_length_prefix(dfile->recfm);
-
-  size_t size = 1;
-  size_t count = dfile->reclen;
-  size_t bytes_to_copy;
-  int isbinary = 0;
-  uint16_t reclen;
-  errno = 0;
-  while (1) {
-    rc = read_block(difile->bpamhandle);
-    if (rc) {
-      errmsg(dfile, "Could not read from bpam handle");
-      return DIOERR_FREAD_FAILED;
-    }
-    // Check for EOF
-    if (CHECK(difile->bpamhandle->decb)) {
-      break;
-    }
-
-    bytes_to_copy = difile->bpamhandle->bytes_used;
-    if (length_prefix) {
-      bytes_to_copy += sizeof(uint16_t);
-    }
-    if (difile->cur_read_offset + bytes_to_copy > difile->read_buffer_size) {
-      errmsg(dfile, "To be implemented - need to write code to grow buffer for reading in file.");
-      return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
-    }
-    reclen = bytes_to_copy;
-    if (length_prefix) {
-      memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
-      difile->cur_read_offset += sizeof(reclen);
-    }
-    memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->block, bytes_to_copy);
-    if (!is_binary)
-      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], bytes_to_copy); 
-#ifdef DEBUG
-    printf("%5.5u <%*.*s>\n", reclen, reclen, reclen, record);
-#endif
-    difile->cur_read_offset += rc;
-  }
-  dfile->bufflen = difile->cur_read_offset;
-  dfile->is_binary = isbinary;
-  return DIOERR_NOERROR;
-}
-
 enum DIOERR read_dataset(struct DFILE* dfile)
 {
-  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
-  enum DIOERR rc = write_dataset_internal(dfile);
-  if (difile->bpamhandle) {
-    rc = read_dataset_internal_bpam(dfile);
-  }
-  else {
-    rc = read_dataset_internal(dfile);
-  }
+  enum DIOERR rc = read_dataset_internal(dfile);
   dfile->err = rc;
   return rc;
 }
@@ -851,7 +718,7 @@ static enum DIOERR write_dataset_internal(struct DFILE* dfile)
 
   errno = 0;
 
-  if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
+  if ((dfile->bufflen == 0) || (dfile->buffer == NULL)) {
     errmsg(dfile, "No buffer and/or buffer length not positive - no action performed.");
     return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
   }
@@ -925,101 +792,9 @@ static enum DIOERR write_dataset_internal(struct DFILE* dfile)
   }
 }
 
-static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
-{
-  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
-  char record[DS_MAX_REC_SIZE];
-  int rc;
-
-  assert(difile->bpamhandle != NULL);
-  errno = 0;
-
-  if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
-    errmsg(dfile, "No buffer and/or buffer length not positive - no action performed.");
-    return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
-  }
-
-  if (difile->dstate == D_READ_BINARY) {
-    rc=close_pds(difile->bpamhandle, NULL);
-    if (rc) {
-      errmsg(dfile, strerror(errno));
-      return DIOERR_FCLOSE_FAILED_ON_WRITE;
-    }
-    difile->dstate = D_CLOSED;
-  }
-
-  if (difile->dstate == D_CLOSED) {
-    int rc = bpam_open_write(difile->bpamhandle, dfile);
-    if (rc)
-      return DIOERR_OPENDD_FOR_WRITE_FAILED;
-  }
-  difile->dstate = D_WRITE_BINARY;
-
-  int length_prefix = has_length_prefix(dfile->recfm);
-
-  size_t size = 1;
-  size_t buffer_offset = 0;
-
-  int err=0;
-  if (length_prefix) {
-    uint16_t reclen;
-    while (buffer_offset < dfile->bufflen) {
-      difile->bpamhandle->bytes_used = *((uint16_t*)(&dfile->buffer[buffer_offset]));
-      buffer_offset += sizeof(uint16_t);
-      memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
-      rc = write_block(difile->bpamhandle);
-      if (rc) {
-        err = 1;
-        break;
-      }
-      buffer_offset += difile->bpamhandle->bytes_used;
-    }
-  } else {
-    while (buffer_offset < dfile->bufflen) {
-      difile->bpamhandle->bytes_used = dfile->reclen;
-      memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
-      rc = write_block(difile->bpamhandle);
-      if (rc) {
-        err = 1;
-        break;
-      }
-      buffer_offset += dfile->reclen;
-    }
-  }
-
-
-  if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
-    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
-    //TODO: 
-    return 8;
-  }
-  if (writememdir_entry(difile->bpamhandle, difile->memstat, dfile)) {
-    errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-    return 8;
-  }
-  if (ispf_deq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
-    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
-    return 8;
-  }
-
-  if (err) {
-    errmsg(dfile, strerror(errno));
-    return DIOERR_FWRITE_FAILED;
-  } else {
-    return DIOERR_NOERROR;
-  }
-}
-
 enum DIOERR write_dataset(struct DFILE* dfile)
 {
-  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
   enum DIOERR rc = write_dataset_internal(dfile);
-  if (difile->bpamhandle) {
-    rc = write_dataset_internal_bpam(dfile);
-  }
-  else {
-    rc = write_dataset_internal(dfile);
-  }
   dfile->err = rc;
   return rc;
 }
@@ -1050,7 +825,7 @@ const char* member_name(struct DFILE* dfile, char* member_copy)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  if (has_member(dfile)) {
+  if (has_member(difile)) {
     size_t len = strlen(difile->member_name);
     memcpy(member_copy, difile->member_name, len);
     member_copy[len] = '\0';
@@ -1093,20 +868,46 @@ const char* low_level_qualifier(struct DFILE* dfile, char* llq_copy)
   return llq_copy;
 }
 
+const char* llq_to_extension(struct DFILE* dfile, const char* llq, char* extension) {
+  if (strcasecmp(llq, "COBOL") == 0) {
+    strcpy(extension, "cbl");
+  } else if (strcasecmp(llq, "H") == 0) {
+    strcpy(extension, "h");
+  } else if (strcasecmp(llq, "ASM") == 0) {
+    strcpy(extension, "asm");
+  } else if (strcasecmp(llq, "C") == 0) {
+    strcpy(extension, "c");
+  } else if (strcasecmp(llq, "JCL") == 0) {
+    strcpy(extension, "jcl");
+  } else if (strcasecmp(llq, "PLI") == 0) {
+    strcpy(extension, "pli");
+  } else if (strcasecmp(llq, "TXT") == 0) {
+    strcpy(extension, "txt");
+  } else {
+    strcpy(extension, llq); // Default to lower-case LLQ
+    strlower(extension);
+  }
+
+  return extension;
+}
+
 const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
+  char extension[EXTENSION_MAX];
+
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  if (has_member(dfile)) {
+  llq_to_extension(dfile, difile->llq, extension);
+  if (has_member(difile)) {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, extension);
     } else {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, extension);
     }
   } else {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, extension);
     } else {
-      sprintf(unixfile, "%s.%s", difile->hlq, difile->unix_extension);
+      sprintf(unixfile, "%s.%s", difile->hlq, extension);
     }
   }
 
@@ -1128,177 +929,4 @@ int is_binary(const char *str, int length) {
   }
 
   return 0;
-}
-
-int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
-                               int force_binary) {
-  int perms = dfile->readonly ? 0400 : 0600;
-
-  // Create temporary file with dataset contents
-  int temp_fd;
-  if (__isASCII()) {
-    tempname = strdup(tempname);
-    __a2e_s(tempname);
-  }
-  if ((temp_fd = open(tempname, O_WRONLY | O_CREAT | O_TRUNC, perms)) == -1) {
-    close_dataset(dfile);
-    close(temp_fd);
-    return 1;
-  }
-  struct f_cnvrt req = {SETCVTOFF, 0, 0};
-  fcntl(temp_fd, F_CONTROL_CVT, &req);
-
-  int length_prefix = has_length_prefix(dfile->recfm);
-  int i = 0;
-  char *data = dfile->buffer;
-  if (length_prefix) {
-    uint16_t reclen;
-    while (i < dfile->bufflen) {
-      memcpy(&reclen, &data[i], sizeof(reclen));
-      i += sizeof(reclen);
-      if (write(temp_fd, &data[i], reclen) != reclen) {
-        close_dataset(dfile);
-        close(temp_fd);
-        return 1;
-      }
-      if (!force_binary)
-        if (write(temp_fd, "\n", 1) != 1) {
-          close_dataset(dfile);
-          close(temp_fd);
-          return 1;
-        }
-      i += reclen;
-    }
-  } else {
-    while (i < dfile->bufflen) {
-      if (write(temp_fd, &data[i], dfile->reclen) != dfile->reclen) {
-        close_dataset(dfile);
-        close(temp_fd);
-        return 1;
-      }
-      if (!force_binary)
-        if (write(temp_fd, "\n", 1) != 1) {
-          free(dfile->buffer);
-          close_dataset(dfile);
-          close(temp_fd);
-          return 1;
-        }
-      i = i + dfile->reclen;
-    }
-  }
-
-  // Set the ccsid
-  attrib_t attr;
-  memset(&attr, 0, sizeof(attr));
-  attr.att_filetagchg = 1;
-  attr.att_filetag.ft_ccsid = dfile->ccsid == 0 ? 1047 : dfile->ccsid;
-  attr.att_filetag.ft_txtflag = dfile->txtflag;
-  __fchattr(temp_fd, &attr, sizeof(attr));
-  close(temp_fd);
-  return 0;
-}
-
-char *read_temp_file_to_buffer(char *tempname, struct DFILE *dfile) {
-  // Read temporary file into record buffer
-  if (__isASCII()) {
-    tempname = strdup(tempname);
-    __a2e_s(tempname);
-  }
-  FILE *fp;
-  if ((fp = fopen(tempname, "r")) == NULL) {
-    errmsg(dfile, "Cannot open temporary file: %s", tempname);
-    return NULL;
-  }
-
-  if (!fp) {
-    errmsg(dfile, "Error: Invalid file pointer");
-    return NULL;
-  }
-
-  // Count lines to estimate buffer size
-  int lines = 1;  // always start with one line
-  char *line = malloc(DS_MAX_REC_SIZE);
-
-  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE);
-  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
-    lines++;
-  }
-  __ae_thread_swapmode(prevMode);
-
-  int buffer_size = lines * dfile->reclen * 2;
-  rewind(fp);
-
-  char *buffer = malloc(buffer_size);
-  if (!buffer) {
-    errmsg(dfile, "Error: Failed to allocate memory for buffer");
-    fclose(fp);
-    return NULL;
-  }
-
-  if (!line) {
-    errmsg(dfile, "Error: Failed to allocate memory for line buffer");
-    free(buffer);
-    fclose(fp);
-    return NULL;
-  }
-
-  int tot_size = 0;
-  uint16_t record_length = 0;
-  int line_num = 0;
-  int length_prefix = has_length_prefix(dfile->recfm);
-
-  prevMode =
-      __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
-  // Read the file line by line and populate the buffer
-  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
-    __ae_thread_swapmode(prevMode);
-    line_num++;
-    record_length = strlen(line) - 1; // Ignore newline character
-
-    if (record_length > dfile->reclen) {
-      errmsg(dfile, "Error: Line %d exceeds record length of %d", line_num,
-             dfile->reclen);
-      free(line);
-      free(buffer);
-      fclose(fp);
-      return NULL;
-    }
-
-    // Add the length prefix if needed
-    if (length_prefix) {
-      if ((tot_size + sizeof(uint16_t) + record_length) > buffer_size) {
-        errmsg(dfile, "Error: Exceeded buffer size at line %d", line_num);
-        free(line);
-        free(buffer);
-        fclose(fp);
-        return NULL;
-      }
-      memcpy(&buffer[tot_size], &record_length, sizeof(uint16_t));
-      tot_size += sizeof(uint16_t);
-      memcpy(&buffer[tot_size], line, record_length);
-      tot_size += record_length;
-    } else {
-      if ((tot_size + dfile->reclen) > buffer_size) {
-        errmsg(dfile, "Error: Exceeded buffer size at line %d", line_num);
-        free(line);
-        free(buffer);
-        fclose(fp);
-        return NULL;
-      }
-      memcpy(&buffer[tot_size], line, record_length);
-      memset(&buffer[tot_size + record_length], ' ',
-             dfile->reclen -
-                 record_length); // Fill remaining space with padding
-      tot_size += dfile->reclen;
-    }
-    prevMode =
-        __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
-  }
-  __ae_thread_swapmode(prevMode); // Otherwise it gets garbled
-
-  free(line);
-  dfile->buffer = buffer;
-  dfile->bufflen = tot_size;
-  fclose(fp);
-  return buffer;
 }
