@@ -14,7 +14,6 @@
 
 #include "diocommon.h"
 
-#include "util.h"
 #include "dio.h"
 #include "mem.h"
 #include "iosvcs.h"

@@ -1,5 +1,5 @@
-#ifndef __DIO2_H__
-#define __DIO2_H__ 1
+#ifndef __DIO_UTILS_H__
+#define __DIO_UTILS_H__ 1
 
 #include "diocommon.h"
 

@@ -5,7 +5,6 @@
 #include "dio_utils.h"
 #include "mem.h"
 #include "stow.h"
-#include "util.h"
 #include "s99.h"
 #include "wrappers.h"
 
