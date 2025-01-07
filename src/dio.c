@@ -602,6 +602,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
       if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 1 /*test only*/, dfile)) {
         dfile->readonly = 1;
       }
+    }
   }
 
   if (use_stream_services) {
@@ -816,7 +817,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
     //TODO: do we need to do anything here? 
   }
 
-  //TODO: add enqueue logic
+  //TODO: add enqueue check to set state to readonly
   if (difile->dstate == D_CLOSED) {
     int rc = bpam_open_read(difile->bpamhandle, dfile);
     if (rc)
@@ -848,7 +849,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
       errmsg(dfile, "Could not read from bpam handle");
       return DIOERR_FREAD_FAILED;
     }
-    //TODO: Does this actually check for EOF?
+    //TODO: Verify with Mike
     if (CHECK(difile->bpamhandle->decb)) {
       break;
     }
@@ -1040,6 +1041,7 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     }
   }
 
+  //TODO: modify mstat with new statistics
   if (writememdir_entry(difile->bpamhandle, difile->memstat, dfile)) {
     errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
     return 8;

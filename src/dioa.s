@@ -482,15 +482,44 @@ SYEXENQT  ENQ (7,8,E,9,SYSTEMS),RET=USE,MF=L
          DROP
          LTORG
 
-SYEXENQA_PARMS   DSECT
+**| TSEXENQA..... SYSTEMS EXCLUSIVE ENQ
+**| https://tech.mikefulton.ca/ENQMacro
+**| Input:
+**|   R1 -> pointer to QNAME, RNAME, RNAME Length
+**| Output:
+**|   R15 -> RC 0 if successful, non-zero otherwise
+
+DIOA     CSECT
+         ENTRY TSEXENQA
+TSEXENQA ASDPRO BASE_REG=3,USR_DSAL=TSEXENQA_DSAL
+         USING TSEXENQA_PARMS,R1
+         LA    R10,TSEXENQS
+*
+         LA  6,TSEXENQS
+         MVC TSEXENQS,TSEXENQT
+         L   R7,EQNAMEA
+         L   R8,ERNAMEA
+         L   R9,ERNAMEL
+         ENQ ((7),(8),E,(9),SYSTEMS),RET=USE,MF=(E,TSEXENQS)
+
+         ASDEPI
+
+* Template for ENQ
+
+TSEXENQT  ENQ (7,8,E,9,SYSTEMS),RET=USE,MF=L
+
+         DROP
+         LTORG
+
+TSEXENQA_PARMS   DSECT
 EQNAMEA DS        AL4
 ERNAMEA DS        AL4
 ERNAMEL DS        1F
 
-SYEXENQS DS 0F
+TSEXENQS DS 0F
          ENQ (2,3,E,4,SYSTEMS),RET=USE,MF=L
-SYEXENQL         EQU *-SYEXENQS
-SYEXENQA_DSAL    EQU SYEXENQL
+TSEXENQL         EQU *-TSEXENQS
+TSEXENQA_DSAL    EQU TSEXENQL
 
 **|
 **| Addressability DSECTs
