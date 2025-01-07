@@ -37,7 +37,7 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   dcb = dcb_init(handle->ddname);
   if (!dcb) {
     errmsg(dfile, "Unable to obtain storage for OPEN dcb\n");
-    return 4;
+    return -1;
   }
 
   /*
@@ -55,13 +55,13 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
       break;
     default:
       errmsg(dfile, "bpam_open function only supports INPUT and OUTPUT. %d specified\n", mode);
-      return 4;
+      return -1;
   }
 
   opencb = MALLOC31(sizeof(struct opencb));
   if (!opencb) {
     errmsg(dfile, "Unable to obtain storage for OPEN cb\n");
-    return 4;
+    return -1;
   }
   *opencb = opencb_template;
   opencb->dcb24 = dcb;
@@ -69,24 +69,24 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
 
   rc = OPEN(opencb);
   if (rc) {
-    errmsg(dfile, "Unable to perform OPEN. rc:%d\n", rc);
-    return rc;
+    errmsg(dfile, "Unable to perform OPEN. rc: %d\n", rc);
+    return -1;
   }
 
   if (!dcb->dcbdsgpo) {
     errmsg(dfile, "Dataset is not a PDSE.\n");
-    return 4;
+    return 1;
   }
 
   decb = MALLOC24(sizeof(struct decb));
   if (!decb) {
     errmsg(dfile, "Unable to obtain storage for WRITE decb\n");
-    return 4;
+    return -1;
   }
   block = MALLOC24(dcb->dcbblksi);
   if (!block) {
     errmsg(dfile, "Unable to obtain storage for WRITE block\n");
-    return 4;
+    return -1;
   }
 
   handle->dcb = dcb;

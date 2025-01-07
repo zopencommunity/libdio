@@ -690,7 +690,7 @@ static char* PTR32 ispf_qname(const char* qn, struct DFILE* dfile)
   return qname;
 }
 
-int ispf_enq_dataset_member(const char* ds, const char* wmem, struct DFILE* dfile) 
+int ispf_enq_dataset_member(const char* ds, const char* wmem, int test_only, struct DFILE* dfile) 
 {
   char* PTR32 rname = ispf_rname(ds, wmem, dfile);
   char* PTR32 qname = ispf_qname("SPFEDIT", dfile);
@@ -698,7 +698,12 @@ int ispf_enq_dataset_member(const char* ds, const char* wmem, struct DFILE* dfil
   if (!rname || !qname) {
     return 4;
   }
-  int rc = SYEXENQ(qname, rname, strlen(rname));
+  int rc;
+  if (test_only)
+    rc = TSEXENQ(qname, rname, strlen(rname));
+  else
+    rc = SYEXENQ(qname, rname, strlen(rname));
+
   free(rname);
   free(qname);
   return rc;

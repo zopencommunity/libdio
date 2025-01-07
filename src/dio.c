@@ -497,6 +497,14 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     return dfile;
   }
 
+  // Check if LIBDIO_DEBUG environment variable is set
+  if (!dfile->debug) {
+    const char* debug_env = getenv("LIBDIO_DEBUG");
+    if (debug_env && strcmp(debug_env, "1") == 0) {
+      dfile->debug = 1;
+    }
+  }
+
   dfile->internal = difile;
 
   char* dataset_name_copy = strdup(dataset_name);
@@ -534,45 +542,69 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   printf("allocated ddname:%s\n", difile->ddname);
 #endif
   
+  int use_stream_services = 1;
   if (has_member(dfile)) {
+    use_stream_services = 0;
+  }
+
+  if (!use_stream_services) {
     FM_BPAMHandle* bh = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
     bh->ddname = difile->ddname;
     int rc = bpam_open_read(bh, dfile);
     if (rc) {
-      fprintf(stderr, "Unable to open %s for read. rc:%d\n", bh->ddname, rc);
-      dfile->err = rc;
-      return dfile;
-    }
-    if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
-        dfile->recfm = D_F;
-    else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecu)
-        dfile->recfm = D_U;
-    else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv)
-        dfile->recfm = D_V;
-    else {
-      errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
-      dfile->err = DIOERR_UNSUPPORTED_RECFM;
-      return dfile;
-    }
-    dfile->reclen = bh->dcb->dcblrecl;
-
-    dfile->dsorg = D_PDSE;
-    difile->bpamhandle = bh;
-
-    difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-    if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-      errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-      return dfile;
+      if (rc == 1) { // soft error, likely not a pdse
+        if (!bh->dcb->dcbdsgpo) { 
+          use_stream_services = 1;
+          close_pds(bh, dfile);
+        }
+      }
+      else { // critical error, exit
+        dfile->err = rc;
+        return dfile;
+      }
     }
 
-    rc = find_member(difile->bpamhandle, difile->member_name);
-    if (rc) {
-      errmsg(dfile, "Unable to find %s(%s) for read. rc:%d\n",  difile->dataset_name, difile->member_name, rc);
-      return dfile;
-    }
-    // check for dfile->dsorg = D_PDS;
-    // TODO: check for read-only
-  } else {
+    if (!use_stream_services) {
+      difile->dstate = D_READ_BINARY;
+      if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
+          dfile->recfm = D_F;
+      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecla)
+          dfile->recfm = D_FA;
+      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecu)
+          dfile->recfm = D_U;
+      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv)
+          dfile->recfm = D_V;
+      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecd)
+          dfile->recfm = D_VA;
+      else {
+        errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
+        dfile->err = DIOERR_UNSUPPORTED_RECFM;
+        return dfile;
+      }
+      dfile->reclen = bh->dcb->dcblrecl;
+
+      dfile->dsorg = D_PDSE;
+      difile->bpamhandle = bh;
+
+      difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
+      if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
+        errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
+        return dfile;
+      }
+
+      rc = find_member(difile->bpamhandle, difile->member_name);
+      if (rc) {
+        errmsg(dfile, "Unable to find %s(%s) for read. rc:%d\n",  difile->dataset_name, difile->member_name, rc);
+        return dfile;
+      }
+
+      // Test for ENQ
+      if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 1 /*test only*/, dfile)) {
+        dfile->readonly = 1;
+      }
+  }
+
+  if (use_stream_services) {
     /*
     * Note - there is a timing window here and it is not efficient to 
     * open the dataset twice (once to get the dataset characteristics and once to read or write)
@@ -772,7 +804,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   errno = 0;
 
   if (difile->dstate == D_WRITE_BINARY) {
-    rc=close_pds(difile->bpamhandle, NULL);
+    rc = close_pds(difile->bpamhandle, NULL);
     if (rc) {
       errmsg(dfile, strerror(errno));
       return DIOERR_FCLOSE_FAILED_ON_READ;
@@ -781,13 +813,14 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   }
 
   if (difile->dstate == D_READWRITE_BINARY) {
-    //rewind(difile->fp);
-    //TODO
+    //TODO: do we need to do anything here? 
   }
 
-  //TODO
+  //TODO: add enqueue logic
   if (difile->dstate == D_CLOSED) {
-    return 1;
+    int rc = bpam_open_read(difile->bpamhandle, dfile);
+    if (rc)
+      return DIOERR_OPENDD_FOR_READ_FAILED;
   }
   difile->dstate = D_READWRITE_BINARY;
 
@@ -815,7 +848,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
       errmsg(dfile, "Could not read from bpam handle");
       return DIOERR_FREAD_FAILED;
     }
-    // Check for EOF
+    //TODO: Does this actually check for EOF?
     if (CHECK(difile->bpamhandle->decb)) {
       break;
     }
@@ -849,7 +882,7 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 enum DIOERR read_dataset(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
-  enum DIOERR rc = read_dataset_internal(dfile);
+  enum DIOERR rc;
   if (difile->bpamhandle) {
     rc = read_dataset_internal_bpam(dfile);
   }
@@ -948,10 +981,6 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   char record[DS_MAX_REC_SIZE];
   int rc;
 
-  if (difile->bpamhandle == NULL) {
-    errmsg(dfile, "BPAM Handle is NULL, something went wrong.");
-    return 1; //TODO
-  }
   errno = 0;
 
   if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
@@ -960,7 +989,7 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   }
 
   if (difile->dstate == D_READ_BINARY) {
-    rc=close_pds(difile->bpamhandle, NULL);
+    rc = close_pds(difile->bpamhandle, NULL);
     if (rc) {
       errmsg(dfile, strerror(errno));
       return DIOERR_FCLOSE_FAILED_ON_WRITE;
@@ -980,6 +1009,10 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   size_t size = 1;
   size_t buffer_offset = 0;
 
+  if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 0, dfile)) {
+    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
+    return 8;
+  }
   int err=0;
   if (length_prefix) {
     uint16_t reclen;
@@ -1007,18 +1040,12 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     }
   }
 
-
-  if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
-    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
-    //TODO: 
-    return 8;
-  }
   if (writememdir_entry(difile->bpamhandle, difile->memstat, dfile)) {
     errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
     return 8;
   }
   if (ispf_deq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
-    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
+    errmsg(dfile, "Unable to obtain DEQ for PDS member %s(%s).\n", difile->dataset_name, difile->member_name);
     return 8;
   }
 
@@ -1049,7 +1076,12 @@ static enum DIOERR close_dataset_internal(struct DFILE* dfile)
   int rc = 0;
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
 
-  rc = fclose(difile->fp);
+  if (difile->bpamhandle) {
+    rc = close_pds(difile->bpamhandle, dfile);
+  } else {
+    rc = fclose(difile->fp);
+  }
+  
   if (rc) {
     errmsg(dfile, strerror(errno));
     return DIOERR_FCLOSE_FAILED_ON_CLOSE;
