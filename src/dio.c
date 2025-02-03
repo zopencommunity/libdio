@@ -542,19 +542,19 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   printf("allocated ddname:%s\n", difile->ddname);
 #endif
   
-  int use_stream_services = 1;
+  int use_bpam_services = 0;
   if (has_member(dfile)) {
-    use_stream_services = 0;
+    use_bpam_services = 1;
   }
 
-  if (!use_stream_services) {
+  if (use_bpam_services) {
     FM_BPAMHandle* bh = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
     bh->ddname = difile->ddname;
     int rc = bpam_open_read(bh, dfile);
     if (rc) {
       if (rc == 1) { // soft error, likely not a pdse
         if (!bh->dcb->dcbdsgpo) { 
-          use_stream_services = 1;
+          use_bpam_services = 0;
           close_pds(bh, dfile);
         }
       }
@@ -568,14 +568,10 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
       difile->dstate = D_READ_BINARY;
       if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
           dfile->recfm = D_F;
-      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecla)
-          dfile->recfm = D_FA;
       else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecu)
           dfile->recfm = D_U;
       else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv)
           dfile->recfm = D_V;
-      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecd)
-          dfile->recfm = D_VA;
       else {
         errmsg(dfile, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
         dfile->err = DIOERR_UNSUPPORTED_RECFM;
@@ -586,26 +582,20 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
       dfile->dsorg = D_PDSE;
       difile->bpamhandle = bh;
 
-      difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-      if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-        errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-        return dfile;
-      }
-
       rc = find_member(difile->bpamhandle, difile->member_name);
-      if (rc) {
-        errmsg(dfile, "Unable to find %s(%s) for read. rc:%d\n",  difile->dataset_name, difile->member_name, rc);
-        return dfile;
+      if (!rc) {
+        difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
+        if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
+          errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
+          return dfile;
+        }
       }
+      //TODO: anythign to do for new members?
 
-      // Test for ENQ
-      if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 1 /*test only*/, dfile)) {
-        dfile->readonly = 1;
-      }
     }
   }
 
-  if (use_stream_services) {
+  if (!use_bpam_services) {
     /*
     * Note - there is a timing window here and it is not efficient to 
     * open the dataset twice (once to get the dataset characteristics and once to read or write)

@@ -53,6 +53,7 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
     case OPEN_OUTPUT:
       dcb->dcbmacr.dcbmacr2 = dcbmrwrt|dcbmrpt2;
       break;
+/*TODO: Test with OUTPUT only */
     default:
       errmsg(dfile, "bpam_open function only supports INPUT and OUTPUT. %d specified\n", mode);
       return -1;
@@ -73,8 +74,9 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
     return -1;
   }
 
+  //TODO: test if it works for PDS
   if (!dcb->dcbdsgpo) {
-    errmsg(dfile, "Dataset is not a PDSE.\n");
+    errmsg(dfile, "Dataset is not a PDS/PDSE.\n");
     return 1;
   }
 
