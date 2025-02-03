@@ -564,7 +564,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
       }
     }
 
-    if (!use_stream_services) {
+    if (!use_bpam_services) {
       difile->dstate = D_READ_BINARY;
       if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
           dfile->recfm = D_F;
@@ -581,16 +581,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 
       dfile->dsorg = D_PDSE;
       difile->bpamhandle = bh;
-
-      rc = find_member(difile->bpamhandle, difile->member_name);
-      if (!rc) {
-        difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-        if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-          errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-          return dfile;
-        }
-      }
-      //TODO: anythign to do for new members?
 
     }
   }
@@ -794,24 +784,20 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 
   errno = 0;
 
-  if (difile->dstate == D_WRITE_BINARY) {
-    rc = close_pds(difile->bpamhandle, NULL);
-    if (rc) {
-      errmsg(dfile, strerror(errno));
-      return DIOERR_FCLOSE_FAILED_ON_READ;
-    }
-    difile->dstate = D_CLOSED;
-  }
-
-  if (difile->dstate == D_READWRITE_BINARY) {
-    //TODO: do we need to do anything here? 
-  }
-
   //TODO: add enqueue check to set state to readonly
   if (difile->dstate == D_CLOSED) {
     int rc = bpam_open_read(difile->bpamhandle, dfile);
     if (rc)
       return DIOERR_OPENDD_FOR_READ_FAILED;
+  }
+
+  rc = find_member(difile->bpamhandle, difile->member_name);
+  if (!rc) {
+    difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
+    if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
+      errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
+      return -1;
+    }
   }
   difile->dstate = D_READWRITE_BINARY;
 
@@ -833,38 +819,46 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   int isbinary = 0;
   uint16_t reclen;
   errno = 0;
-  while (1) {
+while (1) {
     rc = read_block(difile->bpamhandle);
     if (rc) {
       errmsg(dfile, "Could not read from bpam handle");
       return DIOERR_FREAD_FAILED;
     }
-    //TODO: Verify with Mike
-    if (CHECK(difile->bpamhandle->decb)) {
-      break;
+
+    if (difile->bpamhandle->bytes_used == 0) {
+      break; // EOF - No more data in the block
     }
 
     bytes_to_copy = difile->bpamhandle->bytes_used;
     if (length_prefix) {
-      bytes_to_copy += sizeof(uint16_t);
+      bytes_to_copy += sizeof(uint16_t); // Account for record length prefix
     }
+
+    // Check if we need to grow the buffer (not implemented yet)
     if (difile->cur_read_offset + bytes_to_copy > difile->read_buffer_size) {
       errmsg(dfile, "To be implemented - need to write code to grow buffer for reading in file.");
       return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
     }
-    reclen = bytes_to_copy;
+
+    // Copy record length prefix if necessary
     if (length_prefix) {
+      reclen = difile->bpamhandle->bytes_used;
       memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
       difile->cur_read_offset += sizeof(reclen);
     }
-    memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->block, bytes_to_copy);
-    if (!is_binary)
-      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], bytes_to_copy); 
-#ifdef DEBUG
-    printf("%5.5u <%*.*s>\n", reclen, reclen, reclen, record);
-#endif
-    difile->cur_read_offset += rc;
+
+    // Copy the data from the block
+    memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->block, difile->bpamhandle->bytes_used);
+    
+    // Check for binary data (only check once)
+    if (!isbinary) {
+      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->bytes_used);
+    }
+
+    difile->cur_read_offset += difile->bpamhandle->bytes_used;
   }
+
   dfile->bufflen = difile->cur_read_offset;
   dfile->is_binary = isbinary;
   return DIOERR_NOERROR;
@@ -969,9 +963,9 @@ static enum DIOERR write_dataset_internal(struct DFILE* dfile)
 static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
-  char record[DS_MAX_REC_SIZE];
   int rc;
 
+  assert(difile->bpamhandle != NULL);
   errno = 0;
 
   if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
@@ -980,7 +974,7 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   }
 
   if (difile->dstate == D_READ_BINARY) {
-    rc = close_pds(difile->bpamhandle, NULL);
+    rc = close_pds(difile->bpamhandle, dfile);
     if (rc) {
       errmsg(dfile, strerror(errno));
       return DIOERR_FCLOSE_FAILED_ON_WRITE;
@@ -988,31 +982,79 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     difile->dstate = D_CLOSED;
   }
 
-  if (difile->dstate == D_CLOSED) {
-    int rc = bpam_open_write(difile->bpamhandle, dfile);
-    if (rc)
-      return DIOERR_OPENDD_FOR_WRITE_FAILED;
+  if (difile->dstate == D_READWRITE_BINARY) {
+      // Close and reopen for writing if opened for read/write
+      rc = close_pds(difile->bpamhandle, dfile);
+      if (rc) {
+          errmsg(dfile, "Error closing BPAM handle after read: %s", strerror(errno));
+          return DIOERR_FCLOSE_FAILED_ON_WRITE;
+      }
+      difile->dstate = D_CLOSED;
   }
-  difile->dstate = D_WRITE_BINARY;
+
+  if (difile->dstate == D_CLOSED) {
+    // Allocate FM_BPAMHandle if it hasn't been allocated yet
+    if (difile->bpamhandle == NULL) {
+      difile->bpamhandle = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
+      if (!difile->bpamhandle) {
+        errmsg(dfile, "Unable to allocate memory for BPAM handle.");
+        return DIOERR_MEMORY_ALLOCATION_FAILED;
+      }
+      difile->bpamhandle->ddname = difile->ddname;
+    }
+
+    rc = bpam_open_write(difile->bpamhandle);
+    if (rc) {
+      errmsg(dfile, "Error opening BPAM handle for write: %s", strerror(errno));
+      return DIOERR_BPAM_OPEN_WRITE_FAILED;
+    }
+    difile->dstate = D_WRITE_BINARY;
+  }
 
   int length_prefix = has_length_prefix(dfile->recfm);
-
-  size_t size = 1;
   size_t buffer_offset = 0;
+
+  // Get the old memstat
+  struct mstat old_mstat = {0};
+  if (readmemdir_entry(difile->bpamhandle, difile->member_name, &old_mstat, dfile)) {
+    // Member does not exist yet, old_mstat will be all zeros???
+  }
 
   if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 0, dfile)) {
     errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
-    return 8;
+    return DIOERR_BPAM_ENQ_FAILED;
   }
-  int err=0;
+
+  difile->bpamhandle->line_num = 1;
+  difile->bpamhandle->ttr_known = 0;
+
+  int err = 0;
   if (length_prefix) {
     uint16_t reclen;
     while (buffer_offset < dfile->bufflen) {
-      difile->bpamhandle->bytes_used = *((uint16_t*)(&dfile->buffer[buffer_offset]));
+      reclen = *((uint16_t*)(&dfile->buffer[buffer_offset]));
       buffer_offset += sizeof(uint16_t);
+
+      // Check if record exceeds maximum record length
+      if (reclen > dfile->reclen) {
+        errmsg(dfile, "Record length exceeds maximum record length. Record length: %d, Max record length: %d", reclen, dfile->reclen);
+        err = 1;
+        break;
+      }
+
+      // Check for buffer overflow before copying
+      if (buffer_offset + reclen > dfile->bufflen) {
+          errmsg(dfile, "Error: Data exceeds buffer size when writing to BPAM handle.");
+          err = 1;
+          break;
+      }
+
+      difile->bpamhandle->bytes_used = reclen;
       memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
+
       rc = write_block(difile->bpamhandle);
       if (rc) {
+        errmsg(dfile, "Error writing block to BPAM handle: %s", strerror(errno));
         err = 1;
         break;
       }
@@ -1020,10 +1062,18 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     }
   } else {
     while (buffer_offset < dfile->bufflen) {
+      // Check for buffer overflow before copying
+      if (buffer_offset + dfile->reclen > dfile->bufflen) {
+          errmsg(dfile, "Error: Data exceeds buffer size when writing to BPAM handle.");
+          err = 1;
+          break;
+      }
+
       difile->bpamhandle->bytes_used = dfile->reclen;
       memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
-      rc = write_block(difile->bpamhandle);
+      rc = write_block(difile->bpamhandle, dfile);
       if (rc) {
+        errmsg(dfile, "Error writing block to BPAM handle: %s", strerror(errno));
         err = 1;
         break;
       }
@@ -1031,19 +1081,30 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     }
   }
 
-  //TODO: modify mstat with new statistics
-  if (writememdir_entry(difile->bpamhandle, difile->memstat, dfile)) {
-    errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-    return 8;
+  // Update member statistics
+  struct mstat write_mstat = old_mstat;
+  write_mstat.name = difile->member_name;
+
+  if (write_mstat.ispf_stats) {
+    write_mstat.ispf_current_lines = old_mstat.ispf_current_lines + (buffer_offset / dfile->reclen);
+    write_mstat.ispf_modification++;
+    if (!length_prefix) { // Count as modified lines if fixed format, otherwise assume records already had prefix
+      write_mstat.ispf_modified_lines += (buffer_offset / dfile->reclen);
+    }
   }
+  
+  if (writememdir_entry(difile->bpamhandle, &write_mstat, dfile)) {
+    errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
+    err = 1;
+  }
+
   if (ispf_deq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
     errmsg(dfile, "Unable to obtain DEQ for PDS member %s(%s).\n", difile->dataset_name, difile->member_name);
-    return 8;
+    err = 1;
   }
 
   if (err) {
-    errmsg(dfile, strerror(errno));
-    return DIOERR_FWRITE_FAILED;
+    return DIOERR_BPAM_WRITE_FAILED;
   } else {
     return DIOERR_NOERROR;
   }
