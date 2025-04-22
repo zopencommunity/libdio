@@ -17,6 +17,7 @@
 #include "dio.h"
 #include "mem.h"
 #include "iosvcs.h"
+#include "iob.h"
 #include "fm.h"
 #include "bpamio.h"
 #include "findcb.h"
@@ -43,6 +44,7 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   /*
    * DCB set to PO, BPAM INPUT|OUTPUT and POINT
    */
+  dcb->dcbdsgpo = 1;
   dcb->dcbeodad.dcbhiarc.dcbbftek.dcbbfaln = 0x84;
   dcb->dcboflgs = dcbofuex;
 
@@ -163,7 +165,14 @@ int read_block(FM_BPAMHandle* bh, struct DFILE* dfile)
     errmsg(dfile, "Unable to perform READ. rc:%d\n", rc);
     return rc;
   }
-  return 0;
+  rc = CHECK(bh->decb);
+  /*
+   * Initialize record offset information so that next_record can be called.
+   */
+  bh->next_record_start = NULL;
+  bh->next_record_len = 0;
+
+  return rc;
 }
 
 /*
@@ -215,6 +224,67 @@ int write_block(FM_BPAMHandle* bh, struct DFILE* dfile)
 
   bh->bytes_used = 0;
   return 0;
+}
+
+/*
+ * Read a record. Return non-zero when no next record.
+ * Fixed Block Short blocks need special consideration: https://tech.mikefulton.ca/BlockLengthReadDetermination
+ */
+
+int next_record(FM_BPAMHandle* bh, struct DFILE* dfile)
+{
+  char* block_char = (char*) (bh->block);
+  unsigned short* block_hw = (unsigned short*) (bh->block);
+
+  if (bh->next_record_start == NULL) {
+    /*
+     * Skip over header of block
+     */
+    if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) {
+      bh->next_record_start = &block_char[4];
+    } else {
+      bh->next_record_start = block_char;
+    }
+  } else {
+    bh->next_record_start = &bh->next_record_start[bh->next_record_len];
+  }
+
+  if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) {
+    unsigned short block_size = block_hw[0];
+    if (bh->next_record_start >= &block_char[block_size]) {
+      return 0;
+    }
+
+    /*
+     * If variable record length, then length is in first half word.
+     * Also note the length includes the 4 byte prefix as well.
+     */
+    unsigned short* vreclenp = (unsigned short*) (bh->next_record_start);
+    bh->next_record_len = (*vreclenp - 4);
+    bh->next_record_start += 4;
+  } else {
+    /*
+     * The residual count indicates how many pad bytes are at the end
+     * of the last block of a fixed block member. This needs to be
+     * subtracted from the block size to determine if you are at the 
+     * end of the block.
+     */
+    struct iob* PTR32 iob = (struct iob* PTR32) bh->decb->stat_addr;
+    unsigned short residual = iob->iobcsw.iobresct;
+    unsigned short block_size = bh->dcb->dcbblksi;
+    unsigned short bytes_in_block = block_size - residual;
+
+    if (bh->next_record_start >= &block_char[bytes_in_block]) {
+      return 0;
+    }
+
+    /*
+     * The record is fixed length, so the length of the record is always
+     * the same.
+     */
+    bh->next_record_len = bh->dcb->dcblrecl;
+  }
+  return 1;
 }
 
 const struct desp desp_template = { { { "IGWDESP ", sizeof(struct desp), 1, 0 } } };
@@ -535,11 +605,11 @@ static int alloc_pds(const char* dataset, FM_BPAMHandle* bh, struct DFILE* dfile
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
   struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
 
-  int rc = init_dsnam_text_unit(dataset, &dsn);
+  int rc = init_dsnam_text_unit(dfile, dataset, &dsn);
   if (rc) {
     return rc;
   }
-  rc = dsdd_alloc(&dsn, &dd, &stats);
+  rc = dsdd_alloc(dfile, &dsn, &dd, &stats);
   if (rc) {
     return rc;
   }
@@ -580,7 +650,7 @@ int close_pds(FM_BPAMHandle* bh, struct DFILE* dfile)
     return rc;
   }
 
-  rc = ddfree(&dd);
+  rc = ddfree(dfile, &dd);
   dbgmsg(dfile, "Free DD:%s\n", bh->ddname);
 
   return rc;
@@ -760,7 +830,7 @@ struct mem_node* pds_mem(FM_BPAMHandle* bh, struct DFILE* dfile)
   return NULL;
 }
 
-static int find_node(const char* memname, struct mem_node* match_node, const RECORD *rec)
+static int find_node(const char* memname, struct mem_node* match_node, const RECORD *rec, struct DFILE* dfile)
 {
    const char *ptr, *name;
    int skip, count = 2;
@@ -768,6 +838,7 @@ static int find_node(const char* memname, struct mem_node* match_node, const REC
    char ttr[TTR_LEN];
    int done = 0;
 
+  errmsg(dfile, "A5\n");
    ptr = rec->rest;
 
    while(count < rec->count) {
@@ -776,19 +847,24 @@ static int find_node(const char* memname, struct mem_node* match_node, const REC
        break;
      }
 
+  errmsg(dfile, "A6\n");
      /* member name */
      name = ptr;
      ptr += MEM_MAX;
 
+  errmsg(dfile, "A6.0\n");
      /* ttr */
      memcpy(ttr,ptr,TTR_LEN);
+  errmsg(dfile, "A6.1\n");
      ptr += TTR_LEN;
 
+  errmsg(dfile, "A7\n");
      /* info_byte */
      info_byte = (unsigned int) (*ptr);
      alias = info_byte & ALIAS_MASK;
      skip = (info_byte & SKIP_MASK) * 2 + 1;
 
+  errmsg(dfile, "A8: %s - %s\n", memname, name);
      if (!memcmp(memname, name, 8)) {
        copy_node(match_node, name, alias, ttr, ptr+1, skip);
        done = 1;
@@ -809,10 +885,12 @@ struct mem_node* find_mem(FM_BPAMHandle* bh, const char* memname, struct mem_nod
   int rc;
   int offset;
 
+  errmsg(dfile, "A0\n");
   size_t memlen = strlen(memname);
   char padmem[8+1] = "        ";
   memcpy(padmem, memname, memlen);
 
+  
   /*
    * Read the PDS directory one block at a time until either the 
    * end of the directory or end-of-file is detected. 
@@ -822,8 +900,11 @@ struct mem_node* find_mem(FM_BPAMHandle* bh, const char* memname, struct mem_nod
 
   while ((rc = read_block(bh, dfile)) == 0) {
     for (offset = 0; offset < bh->dcb->dcbblksi; offset += sizeof(RECORD)) {
+  errmsg(dfile, "A1\n");
       rec = (RECORD*) &(((char*)bh->block)[offset]);
-      done = find_node(padmem, match_node, rec);
+  errmsg(dfile, "A2\n");
+      done = find_node(padmem, match_node, rec, dfile);
+  errmsg(dfile, "A21\n");
       if (done) {
         return match_node;
       }

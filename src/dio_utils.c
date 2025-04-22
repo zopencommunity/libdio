@@ -84,10 +84,6 @@ int SYEXENQ(char* PTR32 qname, char* PTR32 rname, unsigned int rname_len)
 {
   return SYEXENQA(qname, rname, rname_len);
 }
-int TSEXENQ(char* PTR32 qname, char* PTR32 rname, unsigned int rname_len)
-{
-  return TSEXENQA(qname, rname, rname_len);
-}
 int SYEXDEQ(char* PTR32 qname, char* PTR32 rname, unsigned int rname_len)
 {
   return SYEXDEQA(qname, rname, rname_len);

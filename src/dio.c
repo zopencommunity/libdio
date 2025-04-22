@@ -38,6 +38,7 @@ void errmsg(struct DFILE* dfile, const char* format, ...)
       __e2a_l(dfile->msgbuff, msglen);
     }
   } 
+  //fprintf(stderr, dfile->msgbuff);
   va_end(arg_ptr);
 }
 
@@ -58,7 +59,7 @@ void dbgmsg(struct DFILE* dfile, const char* format, ...)
   va_end(args);
 }
 
-static enum DIOERR dsdd_alloc(struct DFILE* dfile, struct s99_common_text_unit* dsn, struct s99_common_text_unit* dd, struct s99_common_text_unit* disp)
+enum DIOERR dsdd_alloc(struct DFILE* dfile, struct s99_common_text_unit* dsn, struct s99_common_text_unit* dd, struct s99_common_text_unit* disp)
 {
   struct s99rb* __ptr32 parms;
   enum s99_verb verb = S99VRBAL;
@@ -520,7 +521,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 
   struct s99_common_text_unit dsn = { DALDSNAM, 1, 0, 0 };
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
-  struct s99_common_text_unit stats = { DALSTATS, 1, 1, {0x8} };
+  struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
 
   rc = init_dsnam_text_unit(dfile, difile->dataset_name, &dsn);
   if (rc) {
@@ -539,6 +540,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   difile->dstate = D_CLOSED;
 
 #ifdef DEBUG
+  printf("datasetname:%s\n", difile->dataset_name);
   printf("allocated ddname:%s\n", difile->ddname);
 #endif
   
@@ -564,7 +566,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
       }
     }
 
-    if (!use_bpam_services) {
+    if (use_bpam_services) {
       difile->dstate = D_READ_BINARY;
       if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
           dfile->recfm = D_F;
@@ -784,22 +786,20 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 
   errno = 0;
 
-  //TODO: add enqueue check to set state to readonly
-  if (difile->dstate == D_CLOSED) {
-    int rc = bpam_open_read(difile->bpamhandle, dfile);
-    if (rc)
-      return DIOERR_OPENDD_FOR_READ_FAILED;
-  }
+  //if (difile->dstate == D_CLOSED) {
+    //rc = bpam_open_read(difile->bpamhandle, dfile);
+    //if (rc)
+    //  return DIOERR_OPENDD_FOR_READ_FAILED;
+  //}
 
-  rc = find_member(difile->bpamhandle, difile->member_name);
-  if (!rc) {
-    difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-    if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-      errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-      return -1;
-    }
-  }
+  difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
+if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
+errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
+return DIOERR_READ_MEMDIR_ENTRY_FAILED;
+}
   difile->dstate = D_READWRITE_BINARY;
+
+  rc = find_member(difile->bpamhandle, difile->member_name, dfile);
 
   if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
     difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
@@ -819,45 +819,33 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   int isbinary = 0;
   uint16_t reclen;
   errno = 0;
-while (1) {
-    rc = read_block(difile->bpamhandle);
-    if (rc) {
-      errmsg(dfile, "Could not read from bpam handle");
-      return DIOERR_FREAD_FAILED;
-    }
+  int blocks_read = 0;
+  difile->cur_read_offset = 0;
+      while (!read_block(difile->bpamhandle, dfile)) {
+        blocks_read++;
+        while (next_record(difile->bpamhandle, dfile)) {
+          if (length_prefix) {
+            bytes_to_copy += sizeof(uint16_t); // Account for record length prefix
+          }
 
-    if (difile->bpamhandle->bytes_used == 0) {
-      break; // EOF - No more data in the block
-    }
+          // Check if we need to grow the buffer (not implemented yet)
+          if ((difile->cur_read_offset + difile->bpamhandle->next_record_len) > difile->read_buffer_size) {
+            errmsg(dfile, "TEST - To be implemented - need to write code to grow buffer for reading in file.");
+            return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
+          }
 
-    bytes_to_copy = difile->bpamhandle->bytes_used;
-    if (length_prefix) {
-      bytes_to_copy += sizeof(uint16_t); // Account for record length prefix
-    }
+          bytes_to_copy += difile->bpamhandle->next_record_len;
 
-    // Check if we need to grow the buffer (not implemented yet)
-    if (difile->cur_read_offset + bytes_to_copy > difile->read_buffer_size) {
-      errmsg(dfile, "To be implemented - need to write code to grow buffer for reading in file.");
-      return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
-    }
+          memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->next_record_start, difile->bpamhandle->next_record_len);
+          
+          if (!isbinary) {
+            isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->next_record_len);
+          }
 
-    // Copy record length prefix if necessary
-    if (length_prefix) {
-      reclen = difile->bpamhandle->bytes_used;
-      memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
-      difile->cur_read_offset += sizeof(reclen);
-    }
+          difile->cur_read_offset += bytes_to_copy;
+        }
+      }
 
-    // Copy the data from the block
-    memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->block, difile->bpamhandle->bytes_used);
-    
-    // Check for binary data (only check once)
-    if (!isbinary) {
-      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->bytes_used);
-    }
-
-    difile->cur_read_offset += difile->bpamhandle->bytes_used;
-  }
 
   dfile->bufflen = difile->cur_read_offset;
   dfile->is_binary = isbinary;
@@ -965,7 +953,7 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
   struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
   int rc;
 
-  assert(difile->bpamhandle != NULL);
+  //assert(difile->bpamhandle != NULL);
   errno = 0;
 
   if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {

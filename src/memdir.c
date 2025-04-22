@@ -699,10 +699,7 @@ int ispf_enq_dataset_member(const char* ds, const char* wmem, int test_only, str
     return 4;
   }
   int rc;
-  if (test_only)
-    rc = TSEXENQ(qname, rname, strlen(rname));
-  else
-    rc = SYEXENQ(qname, rname, strlen(rname));
+  rc = SYEXENQ(qname, rname, strlen(rname));
 
   free(rname);
   free(qname);

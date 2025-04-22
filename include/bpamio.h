@@ -37,6 +37,7 @@
 
   int read_block(FM_BPAMHandle* bh, struct DFILE* dfile);
   int write_block(FM_BPAMHandle* bh, struct DFILE* dfile);
+  int next_record(FM_BPAMHandle* bh, struct DFILE* dfile);
 
   int close_pds(FM_BPAMHandle* bh, struct DFILE* dfile);
 #endif
