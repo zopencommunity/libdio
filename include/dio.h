@@ -79,6 +79,12 @@
     DIOERR_INIT_DESP_FAILED,
     DIOERR_BPAM_ENQ_FAILED,
     DIOERR_BPAM_WRITE_FAILED,
+    DIOERR_INVALID_BUFFER_FORMAT,       // Input buffer format inconsistent (e.g., lengths don't match content)
+    DIOERR_RECORD_TOO_LONG,             // Record length exceeds dataset LRECL
+    DIOERR_RECORD_TOO_LONG_FOR_BLK,     // Single record length exceeds dataset BLKSIZE
+    DIOERR_BPAM_WRITE_BLOCK_FAILED,     // BPAM WRITE macro failed
+    DIOERR_BPAM_WRITE_DIR_FAILED,       // STOW or related directory update failed
+    DIOERR_BPAM_DEQ_FAILED,             // ispf_deq_dataset_member failed
     DIOERR_FORCE_INT=INT_MAX
   };
 

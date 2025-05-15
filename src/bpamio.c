@@ -51,8 +51,10 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   switch (mode) {
     case OPEN_INPUT:
       dcb->dcbmacr.dcbmacr1 = dcbmrrd|dcbmrpt1;
+      dcb->dcbmacr.dcbmacr2 = dcbmrwrt|dcbmrpt2;
       break;
     case OPEN_OUTPUT:
+      dcb->dcbmacr.dcbmacr1 = dcbmrrd|dcbmrpt1;
       dcb->dcbmacr.dcbmacr2 = dcbmrwrt|dcbmrpt2;
       break;
 /*TODO: Test with OUTPUT only */
@@ -73,7 +75,7 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   rc = OPEN(opencb);
   if (rc) {
     errmsg(dfile, "Unable to perform OPEN. rc: %d\n", rc);
-    return -1;
+    return rc;
   }
 
   //TODO: test if it works for PDS
