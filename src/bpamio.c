@@ -102,6 +102,9 @@ static int bpam_open(FM_BPAMHandle* handle, int mode, struct DFILE* dfile)
   handle->block_size = dcb->dcbblksi;
   handle->bytes_used = 0;
 
+  handle->pdsstart_ttr = NOTE(dcb);
+  handle->pdsstart_ttr_known = 1;
+
   return 0;
 }
 
@@ -219,9 +222,9 @@ int write_block(FM_BPAMHandle* bh, struct DFILE* dfile)
     return rc;
   }
 
-  if (!bh->ttr_known) {
-    bh->ttr = NOTE(bh->dcb);
-    bh->ttr_known = 1;
+  if (!bh->memstart_ttr_known) {
+    bh->memstart_ttr = NOTE(bh->dcb);
+    bh->memstart_ttr_known = 1;
   }
 
   bh->bytes_used = 0;
@@ -567,7 +570,7 @@ int write_member_dir_entry(const struct mstat* mstat, FM_BPAMHandle* bh, struct 
     return 4;
   }
 
-  add_mem_stats(stowlistadd, mstat, bh->ttr);
+  add_mem_stats(stowlistadd, mstat, bh->memstart_ttr);
 
   stowlist->iff = stowlistiff_template;
 

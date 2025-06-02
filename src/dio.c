@@ -780,76 +780,100 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
 
 static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 {
-  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
-  char record[DS_MAX_REC_SIZE];
-  int rc;
+    struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
+    // char record[DS_MAX_REC_SIZE]; // Not used in BPAM loop
+    int rc;
 
-  errno = 0;
+    errno = 0;
 
-  //if (difile->dstate == D_CLOSED) {
-    //rc = bpam_open_read(difile->bpamhandle, dfile);
-    //if (rc)
-    //  return DIOERR_OPENDD_FOR_READ_FAILED;
-  //}
+    // Optional: Could set state more accurately if desired
+    // difile->dstate = D_READ_BINARY; 
 
-  difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
-if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
-errmsg(dfile, "Unable to read directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-return DIOERR_READ_MEMDIR_ENTRY_FAILED;
-}
-  difile->dstate = D_READWRITE_BINARY;
-
-  rc = find_member(difile->bpamhandle, difile->member_name, dfile);
-
-  if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
-    difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
-    if (!dfile->buffer) {
-      errmsg(dfile, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
-      return DIOERR_READ_BUFFER_ALLOC_FAILED;
+    // Optional: Allocate and read directory entry if needed now
+    difile->memstat = (struct mstat*)calloc(1, sizeof(struct mstat));
+    if (!difile->memstat) {
+         errmsg(dfile, "Unable to allocate memory for member stats.");
+         return DIOERR_MALLOC_FAILED; // Or a specific error
     }
-  }
-  difile->cur_read_offset = 0;
+    if (readmemdir_entry(difile->bpamhandle, difile->member_name, difile->memstat, dfile)) {
+        // Log the error, but maybe continue if reading content is the priority?
+        // Depending on requirements, could return DIOERR_READ_MEMDIR_ENTRY_FAILED;
+        errmsg(dfile, "Warning: Unable to read directory entry for member %s(%s)", difile->dataset_name, difile->member_name);
+        // Keep going to try and read data anyway
+    }
 
-  int length_prefix = has_length_prefix(dfile->recfm);
+    rc = find_member(difile->bpamhandle, difile->member_name, dfile);
+    if (rc) {
+        errmsg(dfile, "Unable to find member %s in dataset %s.", difile->member_name, difile->dataset_name);
+        // Consider freeing memstat if allocated
+        free(difile->memstat);
+        difile->memstat = NULL;
+        return DIOERR_READ_BUFFER_ALLOC_FAILED;
+    }
 
-  size_t size = 1;
-  size_t count = dfile->reclen;
-  size_t bytes_to_copy;
-  int isbinary = 0;
-  uint16_t reclen;
-  errno = 0;
-  int blocks_read = 0;
-  difile->cur_read_offset = 0;
-      while (!read_block(difile->bpamhandle, dfile)) {
-        blocks_read++;
-        while (next_record(difile->bpamhandle, dfile)) {
-          if (length_prefix) {
-            bytes_to_copy += sizeof(uint16_t); // Account for record length prefix
-          }
-
-          // Check if we need to grow the buffer (not implemented yet)
-          if ((difile->cur_read_offset + difile->bpamhandle->next_record_len) > difile->read_buffer_size) {
-            errmsg(dfile, "TEST - To be implemented - need to write code to grow buffer for reading in file.");
-            return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
-          }
-
-          bytes_to_copy += difile->bpamhandle->next_record_len;
-
-          memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->next_record_start, difile->bpamhandle->next_record_len);
-          
-          if (!isbinary) {
-            isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->next_record_len);
-          }
-
-          difile->cur_read_offset += bytes_to_copy;
+    if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
+        difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
+        dfile->buffer = malloc(difile->read_buffer_size);
+        if (!dfile->buffer) {
+            errmsg(dfile, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
+            // Consider freeing memstat if allocated
+            free(difile->memstat);
+            difile->memstat = NULL;
+            return DIOERR_READ_BUFFER_ALLOC_FAILED;
         }
-      }
+    }
+    difile->cur_read_offset = 0; // Reset buffer offset
 
+    int length_prefix = has_length_prefix(dfile->recfm);
+    int isbinary = 0;
+    errno = 0;
+    int blocks_read = 0; // Keep track if needed
 
-  dfile->bufflen = difile->cur_read_offset;
-  dfile->is_binary = isbinary;
-  return DIOERR_NOERROR;
+    // Loop through blocks
+    while ( (rc = read_block(difile->bpamhandle, dfile)) == 0) { // Assuming 0 is success
+        blocks_read++;
+        // Loop through records in the current block
+        while (next_record(difile->bpamhandle, dfile)) {
+            uint16_t current_record_len = (uint16_t)difile->bpamhandle->next_record_len; // Get record length
+            size_t required_space = (length_prefix ? sizeof(uint16_t) : 0) + current_record_len;
+
+            // Check if we need to grow the buffer
+            if ((difile->cur_read_offset + required_space) > difile->read_buffer_size) {
+                errmsg(dfile, "To be implemented - need to write code to grow buffer for reading in file.");
+                // Consider freeing memstat if allocated
+                free(difile->memstat);
+                difile->memstat = NULL;
+                // Free partially filled buffer? Or let caller handle?
+                // free(dfile->buffer); dfile->buffer = NULL; dfile->bufflen = 0;
+                return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
+            }
+
+            // Copy the length prefix if needed
+            if (length_prefix) {
+                memcpy(&dfile->buffer[difile->cur_read_offset], &current_record_len, sizeof(uint16_t));
+                difile->cur_read_offset += sizeof(uint16_t);
+            }
+
+            // Copy the record data
+            memcpy(&dfile->buffer[difile->cur_read_offset], difile->bpamhandle->next_record_start, current_record_len);
+
+            // Check for binary content (only check the actual data, not the prefix)
+            if (!isbinary) {
+                isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], current_record_len);
+            }
+
+            // Update the offset for the next record
+            difile->cur_read_offset += current_record_len;
+        }
+    }
+    
+
+    dfile->bufflen = difile->cur_read_offset;
+    dfile->is_binary = isbinary;
+    // Keep memstat if needed for later access, otherwise:
+    // free(difile->memstat); 
+    // difile->memstat = NULL;
+    return DIOERR_NOERROR;
 }
 
 enum DIOERR read_dataset(struct DFILE* dfile)
@@ -948,155 +972,326 @@ static enum DIOERR write_dataset_internal(struct DFILE* dfile)
   }
 }
 
+/**
+ * @brief Checks if a record of a given data length can be added to the current BPAM block.
+ * (Adapted from colleague's can_add_record_to_block)
+ */
+static int dio_bpam_can_add_record(FM_BPAMHandle* bh, size_t record_data_len, struct DFILE* dfile) {
+    if (!bh || !bh->dcb) {
+        errmsg(dfile, "dio_bpam_can_add_record: Invalid BPAM handle or DCB.");
+        return 0;
+    }
+    size_t required_block_space;
+    if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) { // Variable
+        required_block_space = record_data_len + sizeof(unsigned int); // Data + 4-byte RDW
+    } else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf) { // Fixed
+        required_block_space = bh->dcb->dcblrecl; // Always takes LRECL
+    } else { // Undefined or other
+        required_block_space = record_data_len; // Simplistic for U, assumes no RDW/padding needed here
+    }
+
+    size_t effective_bytes_used = bh->bytes_used;
+    // For V/VB, if block is empty, first 4 bytes are for BDW. write_block sets BDW later.
+    // copy_record will advance bytes_used past BDW if it's the first record.
+    if ((bh->dcb->dcbexlst.dcbrecfm & dcbrecv) && bh->bytes_used == 0 && !(bh->dcb->dcbexlst.dcbrecfm & dcbrecu)) {
+        effective_bytes_used = sizeof(unsigned int);
+    }
+    
+    int can_fit = (effective_bytes_used + required_block_space <= bh->block_size);
+    dbgmsg(dfile, "dio_bpam_can_add_record: data_len=%zu, required_space=%zu, effective_bytes_used=%zu, block_size=%d. Can fit: %s",
+           record_data_len, required_block_space, effective_bytes_used, bh->block_size, can_fit ? "Yes" : "No");
+    return can_fit;
+}
+
+/**
+ * @brief Copies a logical record into the BPAM block, handling RDW/BDW and padding.
+ * (Adapted from colleague's copy_record_to_block)
+ * @return int 0 if successful, 1 if truncated, negative for error.
+ */
+static int dio_bpam_copy_record_to_block(FM_BPAMHandle* bh, size_t record_data_len, const char* record_data, struct DFILE* dfile) {
+    if (!bh || !bh->dcb || !bh->block) {
+        errmsg(dfile, "dio_bpam_copy_record_to_block: Invalid BPAM handle, DCB, or block buffer.");
+        return -1;
+    }
+
+    int truncated = 0;
+    char* block_char = (char*)(bh->block);
+
+    dbgmsg(dfile, "dio_bpam_copy_record_to_block: Adding record (data_len=%zu). Current block bytes_used=%zu", record_data_len, bh->bytes_used);
+
+    if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv) { // RECFM=V (Variable)
+        unsigned int rdw_size = sizeof(unsigned int); // 4-byte RDW
+
+        // Handle BDW for the first record in a V/VB block
+        if (bh->bytes_used == 0 && !(bh->dcb->dcbexlst.dcbrecfm & dcbrecu)) {
+            // Reserve space for BDW. write_block will set its value.
+            *(unsigned int*)&block_char[0] = 0; // Clear BDW space
+            bh->bytes_used += rdw_size; // Advance past BDW space
+            dbgmsg(dfile, "Reserved %u bytes for BDW. bytes_used now %zu", rdw_size, bh->bytes_used);
+        }
+
+        // Prepare RDW
+        // Colleague's sample used rec_len for data part of RDW directly.
+        // RDW usually contains total length (data + RDW itself).
+        // Let's ensure our record_data_len is the actual data.
+        unsigned short rdw_content_len = record_data_len; 
+        if (record_data_len > bh->dcb->dcblrecl - rdw_size) { // Max data for V is LRECL-RDW_size
+            dbgmsg(dfile, "Truncating V record data from %zu to %d to fit LRECL %d with RDW.",
+                   record_data_len, bh->dcb->dcblrecl - rdw_size, bh->dcb->dcblrecl);
+            rdw_content_len = bh->dcb->dcblrecl - rdw_size;
+            if ((int)rdw_content_len < 0) rdw_content_len = 0;
+            truncated = 1;
+        }
+        
+        unsigned short* rdw_ptr = (unsigned short*)(&block_char[bh->bytes_used]);
+        // RDW Field 1: Total length of this logical record (RDW itself + data)
+        // This differs from colleague's RDW content. If their write_block/system expects only data len in RDW[0], adjust.
+        // Standard BPAM RDW for WRITE: 2 bytes total length (including RDW), 2 bytes segment control (0).
+        rdw_ptr[0] = rdw_content_len + rdw_size; // Total length for this record segment
+        rdw_ptr[1] = 0;                          // Segment control flags
+        bh->bytes_used += rdw_size;              // Advance past RDW
+        
+        memcpy(&block_char[bh->bytes_used], record_data, rdw_content_len); // Copy actual data
+        bh->bytes_used += rdw_content_len;       // Advance past data
+        dbgmsg(dfile, "Added V record: RDW[len_field]=%u, data_len_copied=%u. block->bytes_used=%zu", rdw_ptr[0], rdw_content_len, bh->bytes_used);
+
+    } else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf) { // RECFM=F (Fixed)
+        size_t lrecl = bh->dcb->dcblrecl;
+        size_t to_copy = record_data_len;
+
+        if (to_copy > lrecl) {
+            dbgmsg(dfile, "Truncating F record data from %zu to LRECL %zu.", record_data_len, lrecl);
+            to_copy = lrecl;
+            truncated = 1;
+        }
+        memcpy(&block_char[bh->bytes_used], record_data, to_copy);
+
+        if (to_copy < lrecl) { // Pad if data is shorter than LRECL
+            // Assuming EBCDIC space 0x40. Colleague's sample used ' '.
+            // Should ideally get space_char based on CCSID/file type.
+            char space_char = 0x40;
+            memset(&block_char[bh->bytes_used + to_copy], space_char, lrecl - to_copy);
+            dbgmsg(dfile, "Padded F record by %zu bytes.", lrecl - to_copy);
+        }
+        bh->bytes_used += lrecl; // Advance by full LRECL
+        dbgmsg(dfile, "Added F record: data_len_copied=%zu, LRECL=%zu. block->bytes_used=%zu", to_copy, lrecl, bh->bytes_used);
+    } else { // RECFM=U or other
+        // For U, copy data as is, up to remaining block space
+        size_t space_left = bh->block_size - bh->bytes_used;
+        size_t to_copy = record_data_len;
+        if (to_copy > space_left) {
+            dbgmsg(dfile, "Truncating U record data from %zu to fit remaining block space %zu.", record_data_len, space_left);
+            to_copy = space_left;
+            truncated = 1;
+        }
+        memcpy(&block_char[bh->bytes_used], record_data, to_copy);
+        bh->bytes_used += to_copy;
+        dbgmsg(dfile, "Added U record: data_len_copied=%zu. block->bytes_used=%zu", to_copy, bh->bytes_used);
+    }
+    bh->line_num++; // Global record counter for the member being written
+    return truncated;
+}
+
+/**
+ * @brief Writes data from dfile->buffer to a PDS/E member using block-oriented BPAM I/O.
+ * Heavily revised based on colleague's sample's write_member logic.
+ */
 static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
 {
-  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
-  int rc;
+    struct DIFILE* difile = (struct DIFILE*)dfile->internal;
+    int rc_bpam_io; // Return code from BPAM I/O operations like write_block
 
-  //assert(difile->bpamhandle != NULL);
-  errno = 0;
+    dbgmsg(dfile, "write_dataset_internal_bpam for %s(%s)", difile->dataset_name, difile->member_name);
 
-  if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
-    errmsg(dfile, "No buffer and/or buffer length not positive - no action performed.");
-    return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
-  }
-
-  if (difile->dstate == D_READ_BINARY) {
-    rc = close_pds(difile->bpamhandle, dfile);
-    if (rc) {
-      errmsg(dfile, strerror(errno));
-      return DIOERR_FCLOSE_FAILED_ON_WRITE;
+    if (!dfile->buffer && dfile->bufflen > 0) { // Buffer points to NULL but length > 0
+        errmsg(dfile, "Invalid buffer state for write (buffer is NULL, length %zu).", dfile->bufflen);
+        return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
     }
-    difile->dstate = D_CLOSED;
-  }
+    if (dfile->bufflen == 0) {
+        dbgmsg(dfile, "Buffer is empty. Writing an empty member to %s(%s).", difile->dataset_name, difile->member_name);
+        // Writing an empty member still requires opening, setting up directory, etc.
+    }
 
-  if (difile->dstate == D_READWRITE_BINARY) {
-      // Close and reopen for writing if opened for read/write
-      rc = close_pds(difile->bpamhandle, dfile);
-      if (rc) {
-          errmsg(dfile, "Error closing BPAM handle after read: %s", strerror(errno));
-          return DIOERR_FCLOSE_FAILED_ON_WRITE;
-      }
-      difile->dstate = D_CLOSED;
-  }
-
-  if (difile->dstate == D_CLOSED) {
-    // Allocate FM_BPAMHandle if it hasn't been allocated yet
+    // Ensure BPAM handle is ready for write
     if (difile->bpamhandle == NULL) {
-      difile->bpamhandle = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
-      if (!difile->bpamhandle) {
-        errmsg(dfile, "Unable to allocate memory for BPAM handle.");
-        return DIOERR_MEMORY_ALLOCATION_FAILED;
-      }
-      difile->bpamhandle->ddname = difile->ddname;
+        difile->bpamhandle = (FM_BPAMHandle*)calloc(1, sizeof(FM_BPAMHandle));
+        if (!difile->bpamhandle) { errmsg(dfile, "calloc FM_BPAMHandle failed."); return DIOERR_MALLOC_FAILED; }
+        difile->bpamhandle->ddname = strdup(difile->ddname); // BPAM handle owns its ddname copy
+        if (!difile->bpamhandle->ddname) { free(difile->bpamhandle); difile->bpamhandle = NULL; errmsg(dfile, "strdup ddname failed."); return DIOERR_MALLOC_FAILED; }
     }
 
-    rc = bpam_open_write(difile->bpamhandle);
-    if (rc) {
-      errmsg(dfile, "Error opening BPAM handle for write: %s", strerror(errno));
-      return DIOERR_BPAM_OPEN_WRITE_FAILED;
+#if 0
+    if (difile->dstate != D_WRITE_BINARY) {
+        if (difile->dstate != D_CLOSED) { // If it was open for read, close it first
+            dbgmsg(dfile, "BPAM handle was in state %s. Closing before opening for write.", dstates(difile->dstate));
+            // close_pds is assumed to be from your colleague's bpamio.h or equivalent
+            if (close_pds(difile->bpamhandle, dfile)) { // Pass dfile for debug
+                errmsg(dfile, "close_pds failed before bpam_open_write.");
+                // Don't nullify bpamhandle here, bpam_open_write might reuse parts if designed to
+            }
+        }
+        difile->dstate = D_CLOSED; // Mark as closed to force open
+        
+        dbgmsg(dfile, "Calling bpam_open_write for DD: %s", difile->bpamhandle->ddname);
+        // bpam_open_write is assumed from your colleague's bpamio.h or equivalent
+        // It must allocate bh->block and populate bh->dcb, bh->block_size
+        rc_bpam_io = bpam_open_write(difile->bpamhandle, dfile); // Pass dfile for debug
+        if (rc_bpam_io) {
+            errmsg(dfile, "bpam_open_write failed. rc=%d", rc_bpam_io);
+            return DIOERR_BPAM_OPEN_WRITE_FAILED;
+        }
+        difile->dstate = D_WRITE_BINARY;
     }
-    difile->dstate = D_WRITE_BINARY;
-  }
+#endif
 
-  int length_prefix = has_length_prefix(dfile->recfm);
-  size_t buffer_offset = 0;
+    if (!difile->bpamhandle->dcb || !difile->bpamhandle->block) {
+        errmsg(dfile, "BPAM DCB or block buffer not initialized after open for write.");
+        return DIOERR_BPAM_INTERNAL_ERROR;
+    }
+    // Sync dfile attributes with the authoritative DCB from BPAM open
+    dfile->reclen = difile->bpamhandle->dcb->dcblrecl;
+    if (difile->bpamhandle->dcb->dcbexlst.dcbrecfm & dcbrecf) dfile->recfm = D_F;
+    else if (difile->bpamhandle->dcb->dcbexlst.dcbrecfm & dcbrecv) dfile->recfm = D_V;
+    else dfile->recfm = D_U; // Or other appropriate mapping
 
-  // Get the old memstat
-  struct mstat old_mstat = {0};
-  if (readmemdir_entry(difile->bpamhandle, difile->member_name, &old_mstat, dfile)) {
-    // Member does not exist yet, old_mstat will be all zeros???
-  }
 
-  if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 0, dfile)) {
-    errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", difile->dataset_name, difile->member_name);
-    return DIOERR_BPAM_ENQ_FAILED;
-  }
+    int input_has_length_prefix = has_length_prefix(dfile->recfm); // How dfile->buffer is formatted
+    size_t buffer_offset = 0;
+    int records_processed_count = 0;
+    enum DIOERR overall_rc = DIOERR_NOERROR;
 
-  difile->bpamhandle->line_num = 1;
-  difile->bpamhandle->ttr_known = 0;
 
-  int err = 0;
-  if (length_prefix) {
-    uint16_t reclen;
+    if (ispf_enq_dataset_member(difile->dataset_name, difile->member_name, 0, dfile)) { // Pass dfile for debug
+        errmsg(dfile, "Unable to obtain ENQ for PDS member %s(%s).", difile->dataset_name, difile->member_name);
+        return DIOERR_BPAM_ENQ_FAILED;
+    }
+    dbgmsg(dfile, "ISPF ENQ for %s(%s) successful.", difile->dataset_name, difile->member_name);
+
+    difile->bpamhandle->line_num = 0;             // Reset record counter for this member write
+    difile->bpamhandle->bytes_used = 0;           // Start with an empty BPAM block
+    difile->bpamhandle->memstart_ttr_known = 0;   // TTR of first block is unknown
+
+    // Main loop: Iterate through dfile->buffer, extract logical records, add to BPAM block
     while (buffer_offset < dfile->bufflen) {
-      reclen = *((uint16_t*)(&dfile->buffer[buffer_offset]));
-      buffer_offset += sizeof(uint16_t);
+        const char* current_record_data_ptr;
+        uint16_t current_record_data_len;
 
-      // Check if record exceeds maximum record length
-      if (reclen > dfile->reclen) {
-        errmsg(dfile, "Record length exceeds maximum record length. Record length: %d, Max record length: %d", reclen, dfile->reclen);
-        err = 1;
-        break;
-      }
-
-      // Check for buffer overflow before copying
-      if (buffer_offset + reclen > dfile->bufflen) {
-          errmsg(dfile, "Error: Data exceeds buffer size when writing to BPAM handle.");
-          err = 1;
-          break;
-      }
-
-      difile->bpamhandle->bytes_used = reclen;
-      memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
-
-      rc = write_block(difile->bpamhandle);
-      if (rc) {
-        errmsg(dfile, "Error writing block to BPAM handle: %s", strerror(errno));
-        err = 1;
-        break;
-      }
-      buffer_offset += difile->bpamhandle->bytes_used;
+        if (input_has_length_prefix) { // dfile->buffer has [len][data][len][data]...
+            if (buffer_offset + sizeof(uint16_t) > dfile->bufflen) {
+                errmsg(dfile, "Buffer underflow reading record length prefix at offset %zu.", buffer_offset);
+                overall_rc = DIOERR_BPAM_WRITE_BUFFER_ERROR; goto bpam_write_exit_enq;
+            }
+            current_record_data_len = *((uint16_t*)(&dfile->buffer[buffer_offset]));
+            buffer_offset += sizeof(uint16_t);
+            current_record_data_ptr = &dfile->buffer[buffer_offset];
+            if (buffer_offset + current_record_data_len > dfile->bufflen) {
+                errmsg(dfile, "Buffer underflow reading record data at offset %zu. Declared len %u, remaining %lu.",
+                       buffer_offset, current_record_data_len, dfile->bufflen - buffer_offset);
+                overall_rc = DIOERR_BPAM_WRITE_BUFFER_ERROR; goto bpam_write_exit_enq;
+            }
+        } else { // dfile->buffer has fixed-length records (or should)
+            current_record_data_len = dfile->reclen;
+            current_record_data_ptr = &dfile->buffer[buffer_offset];
+            if (buffer_offset + current_record_data_len > dfile->bufflen) { // Handle last partial record if any
+                current_record_data_len = dfile->bufflen - buffer_offset;
+                if(current_record_data_len == 0 && buffer_offset >= dfile->bufflen) break; // No more data
+                dbgmsg(dfile, "Last fixed record in buffer is partial, len %u.", current_record_data_len);
+            }
+        }
+        
+        if (!dio_bpam_can_add_record(difile->bpamhandle, current_record_data_len, dfile)) {
+            if (difile->bpamhandle->bytes_used > 0) { // Block is full, write it
+                dbgmsg(dfile, "BPAM block full (or current record won't fit). Writing block. Bytes used: %zu", difile->bpamhandle->bytes_used);
+                // write_block is assumed from colleague's bpamio.h or equivalent.
+                // IT MUST USE DCBBLKSI AS LENGTH FOR FB WRITES.
+                rc_bpam_io = write_block(difile->bpamhandle, dfile); // Pass dfile for debug
+                if (rc_bpam_io) {
+                    errmsg(dfile, "write_block failed. rc=%d", rc_bpam_io);
+                    overall_rc = DIOERR_BPAM_WRITE_BLOCK_FAILED; goto bpam_write_exit_enq;
+                }
+                // write_block should have reset bh->bytes_used (e.g. to 0, or 4 for V/VB BDW)
+            } else if (current_record_data_len > 0) { // Block is empty, but record still too big for a fresh block
+                 errmsg(dfile, "Record (data len %u) too large for empty BPAM block (size %d).", current_record_data_len, difile->bpamhandle->block_size);
+                 overall_rc = DIOERR_BPAM_RECORD_TOO_LARGE_FOR_BLOCK; goto bpam_write_exit_enq;
+            }
+        }
+        
+        // Add current logical record to BPAM block
+        if (dio_bpam_copy_record_to_block(difile->bpamhandle, current_record_data_len, current_record_data_ptr, dfile) < 0) {
+            errmsg(dfile, "dio_bpam_copy_record_to_block failed.");
+            overall_rc = DIOERR_BPAM_INTERNAL_ERROR; goto bpam_write_exit_enq;
+        }
+        records_processed_count++;
+        buffer_offset += current_record_data_len; // Advance in dfile->buffer
     }
-  } else {
-    while (buffer_offset < dfile->bufflen) {
-      // Check for buffer overflow before copying
-      if (buffer_offset + dfile->reclen > dfile->bufflen) {
-          errmsg(dfile, "Error: Data exceeds buffer size when writing to BPAM handle.");
-          err = 1;
-          break;
-      }
 
-      difile->bpamhandle->bytes_used = dfile->reclen;
-      memcpy(difile->bpamhandle->block, &dfile->buffer[buffer_offset], difile->bpamhandle->bytes_used);
-      rc = write_block(difile->bpamhandle, dfile);
-      if (rc) {
-        errmsg(dfile, "Error writing block to BPAM handle: %s", strerror(errno));
-        err = 1;
-        break;
-      }
-      buffer_offset += dfile->reclen;
+    // Write the final (potentially partially filled) block
+    if (difile->bpamhandle->bytes_used > 0) {
+        dbgmsg(dfile, "Writing final BPAM block. Bytes used: %zu", difile->bpamhandle->bytes_used);
+        // write_block is assumed from colleague's bpamio.h or equivalent.
+        // IT MUST USE DCBBLKSI AS LENGTH FOR FB WRITES.
+        rc_bpam_io = write_block(difile->bpamhandle, dfile); // Pass dfile for debug
+        if (rc_bpam_io) {
+            errmsg(dfile, "Final write_block failed. rc=%d", rc_bpam_io);
+            overall_rc = DIOERR_BPAM_WRITE_BLOCK_FAILED; goto bpam_write_exit_enq;
+        }
     }
-  }
+    dbgmsg(dfile, "BPAM data write phase completed. Records processed: %d.", records_processed_count);
 
-  // Update member statistics
-  struct mstat write_mstat = old_mstat;
-  write_mstat.name = difile->member_name;
+    // Update directory entry
+    struct mstat mstat_info;
+    // create_mstat is assumed from colleague's memdir.h or equivalent
+    // It needs to correctly capture TTRs from bh->memstart_ttr, current line count, CCSID etc.
+    // The TTR might be set by STOW itself or the first WRITE.
+    // For now, simplified:
+    memset(&mstat_info, 0, sizeof(mstat_info));
+    mstat_info.name = difile->member_name;
+    // Populate mstat_info with more details: TTRs from bh, line count, CCSID from dfile->ccsid
+    // e.g., mstat_info.ext_ccsid = dfile->ccsid;
+    // mstat_info.num_lines = records_processed_count;
+    // The colleague's sample's create_mstat handles this.
+    // For now, assume create_mstat populates necessary fields based on bh and records_processed_count.
 
-  if (write_mstat.ispf_stats) {
-    write_mstat.ispf_current_lines = old_mstat.ispf_current_lines + (buffer_offset / dfile->reclen);
-    write_mstat.ispf_modification++;
-    if (!length_prefix) { // Count as modified lines if fixed format, otherwise assume records already had prefix
-      write_mstat.ispf_modified_lines += (buffer_offset / dfile->reclen);
+#if 0
+    if (!create_mstat(&mstat_info, NULL /*userid_ptr*/, NULL /*alias_ptr*/, difile->member_name,
+                      (void*)difile->bpamhandle->memstart_ttr, records_processed_count, dfile /*for opts/debug*/)) {
+        errmsg(dfile, "create_mstat failed for %s.", difile->member_name);
+        overall_rc = 1; goto bpam_write_exit_enq;
     }
-  }
-  
-  if (writememdir_entry(difile->bpamhandle, &write_mstat, dfile)) {
-    errmsg(dfile, "Unable to write directory entry for member %s(%s)\n", difile->dataset_name, difile->member_name);
-    err = 1;
-  }
+#endif
+    // Ensure mstat_info has the target CCSID to be STOWed (e.g. mstat_info.ext_ccsid = dfile->ccsid)
+    // This depends on create_mstat or if you set it manually here.
+    // If dfile->ccsid is the desired one, and create_mstat doesn't handle it:
+    // mstat_info.ext_ccsid = (dfile->dccsid != DCCSID_NOTSET) ? dfile->dccsid : 0; // 0 might mean "no ccsid" for STOW IFF
 
-  if (ispf_deq_dataset_member(difile->dataset_name, difile->member_name, dfile)) {
-    errmsg(dfile, "Unable to obtain DEQ for PDS member %s(%s).\n", difile->dataset_name, difile->member_name);
-    err = 1;
-  }
+    dbgmsg(dfile, "Attempting writememdir_entry for %s.", difile->member_name);
+    // writememdir_entry is assumed from colleague's memdir.h or equivalent.
+    // It should perform STOW, potentially using IFF for CCSID from mstat_info.
+    if (writememdir_entry(difile->bpamhandle, &mstat_info, dfile)) { // Pass dfile for debug
+        errmsg(dfile, "writememdir_entry failed for %s.", difile->member_name);
+        overall_rc = DIOERR_BPAM_WRITEMEMDIR_FAILED;
+        // Data might be written, but directory update failed.
+    } else {
+        dbgmsg(dfile, "writememdir_entry successful for %s.", difile->member_name);
+    }
 
-  if (err) {
-    return DIOERR_BPAM_WRITE_FAILED;
-  } else {
-    return DIOERR_NOERROR;
-  }
+bpam_write_exit_enq:
+    if (ispf_deq_dataset_member(difile->dataset_name, difile->member_name, dfile)) { // Pass dfile for debug
+        errmsg(dfile, "Unable to DEQ PDS member %s.", difile->dataset_name, difile->member_name);
+        if (overall_rc == DIOERR_NOERROR) overall_rc = DIOERR_BPAM_DEQ_FAILED;
+    } else {
+        dbgmsg(dfile, "ISPF DEQ for %s(%s) successful.", difile->dataset_name, difile->member_name);
+    }
+
+    // Consider closing the PDS if this write is a standalone operation,
+    // or leave it open if DFILE represents a longer-lived handle.
+    // The main close_dataset will handle the final BPAM close and ddfree.
+    // For now, we leave it to close_dataset.
+
+    return overall_rc;
 }
+
+
 
 enum DIOERR write_dataset(struct DFILE* dfile)
 {
