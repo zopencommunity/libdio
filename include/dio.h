@@ -5,6 +5,7 @@
   #include <stdint.h>
   #include <limits.h>
   #include <stdio.h>
+  #include <dbgopts.h>
 
   /*
    * Services that take a string or return a string are ASCII/EBCDIC aware.
@@ -108,6 +109,7 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
     int is_binary;
     FILE* logstream;
     void* internal;
+    DBG_Opts* opts;
     int txtflag;
     int ccsid;
     int debug;

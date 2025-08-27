@@ -2,8 +2,7 @@
   #define __DIOINT__ 1
 
   #include <dio.h>
-  #include <fm.h>
-  #include "memdir.h"
+  #include <memdir.h>
 
   enum DSTATE {
     D_CLOSED=1,
@@ -55,6 +54,5 @@
     size_t cur_read_offset;
   };
 
-  void errmsg(struct DFILE* dfile, const char* format, ...);
   int initialize_configuration(char* in_dsname, char* in_llq, char* out_extension, int* out_txtflag, int* out_ccsid);
 #endif

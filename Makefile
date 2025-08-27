@@ -8,12 +8,23 @@ endif
 
 ASAMODE := AMODE$(MODE)
 
+LIBS = -lbpamiosvcs -lbpamiocore 
+
+
 ifdef CJSON_INCLUDE_DIR
     CPPFLAGS += -I$(CJSON_INCLUDE_DIR)
 endif
 
 ifdef CJSON_LIBRARY
     LIBS += $(CJSON_LIBRARY)
+endif
+
+ifdef METALDIO_INCLUDE_DIR
+    CPPFLAGS += -I$(METALDIO_INCLUDE_DIR)
+endif
+
+ifdef METALDIO_LIBRARY
+    LDFLAGS += -L$(METALDIO_LIBRARY)
 endif
 
 

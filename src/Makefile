@@ -6,9 +6,8 @@ AR=ar
 ARFLAGS=rcs
 ARCHIVE=libdio.a
 
-OBJ_FILES=dio.o call31.o call31a.o s99.o s99a.o defaults.o json_parser.o \
-  bpamio.o ztime.o memdir.o dio_utils.o util.o \
-  mem.o iosvcs.o ihadcb.o mema.o dioa.o 
+OBJ_FILES=libdio.o call31.o call31a.o s99.o s99a.o defaults.o json_parser.o \
+  ztime.o 
 
 all: $(ARCHIVE)
 
@@ -27,10 +26,7 @@ mema.o: mema.s
 s99a.o: s99a.s
 	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
 
-dioa.o: dioa.s
-	$(AS) $(ASFLAGS) -I$(MACDIR) $< >$*.lst
-
-dio.o: dio.c $(IINCDIR)/dioint.h $(IINCDIR)/wrappers.h $(INCDIR)/*.h
+libdio.o: libdio.c $(IINCDIR)/dioint.h $(IINCDIR)/wrappers.h $(INCDIR)/*.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) -I$(INCDIR) -I$(IINCDIR) -c $<
 
 s99.o: s99.c $(IINCDIR)/dioint.h $(IINCDIR)/wrappers.h $(IINCDIR)/s99.h

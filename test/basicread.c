@@ -1,4 +1,5 @@
 #include "dio.h"
+#include "dio_utils.h"
 #include <stdio.h>
 #include <limits.h>
 
@@ -62,6 +63,8 @@ int main(int argc, char* argv[]) {
   }
 
   printf("Read %d bytes from dataset %s\n", dfile->bufflen, relds);
+
+  printf("Buffer: %.*s",  dfile->bufflen, dfile->buffer);
 
   rc = close_dataset(dfile);
   if (rc) {
