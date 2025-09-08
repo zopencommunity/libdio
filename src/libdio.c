@@ -448,12 +448,14 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
   struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
 
-  rc = init_dsnam_text_unit(difile->dataset_name, &dsn);
+  init_opts(dfile->opts, dfile);
+  rc = init_dsnam_text_unit(difile->dataset_name, &dsn, dfile->opts);
   if (rc) {
     dfile->err = rc;
+  
     return dfile;
   }
-  rc = dsdd_alloc(&dsn, &dd, &stats);
+  rc = dsdd_alloc(&dsn, &dd, &stats, dfile->opts);
   if (rc) {
     dfile->err = rc;
     return dfile;
@@ -475,7 +477,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   }
 
   if (use_bpam_services) {
-    init_opts(dfile->opts, dfile);
     //bh->ddname = difile->ddname; TODO: do we close it?
     FM_BPAMHandle* bh = open_pds_for_read(difile->dataset_name, dfile->opts);
     if (rc) {
@@ -490,20 +491,35 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
         return dfile;
       }
     }
+/*
+    struct mstat read_mstat;
+    if (readmemdir_entry(bh, difile->member_name, &read_mstat, dfile->opts)) {
+       use_bpam_services = 0;
+       close_pds(bh, dfile->opts);
+    }
+*/
 
     if (use_bpam_services) {
-      difile->dstate = D_READ_BINARY;
-   /*   if (bh->dcb->dcbexlst.dcbrecfm & dcbrecf)
-          dfile->recfm = D_F;
-      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecu)
-          dfile->recfm = D_U;
-      else if (bh->dcb->dcbexlst.dcbrecfm & dcbrecv)
-          dfile->recfm = D_V;
-      else {
-        errmsg(dfile->opts, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
+    record_format_t rf = record_format(bh, dfile->opts);
+    switch (rf) {
+      case RECORD_FORMAT_F:
+      case RECORD_FORMAT_FB:
+        dfile->recfm = D_F;
+        break;
+      case RECORD_FORMAT_V:
+      case RECORD_FORMAT_VB:
+        dfile->recfm = D_V;
+        break;
+      case RECORD_FORMAT_U:
+        dfile->recfm = D_U;
+        break;
+      default:
+        errmsg(dfile->opts,
+              "Dataset %s is not F, V, or U format. open_dataset not supported at this time.",
+              dataset_name_copy);
         dfile->err = DIOERR_UNSUPPORTED_RECFM;
         return dfile;
-*/
+    }
       dfile->reclen = record_length(bh, dfile->opts);
       difile->bpamhandle = bh;
 
@@ -516,7 +532,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     * open the dataset twice (once to get the dataset characteristics and once to read or write)
     * but this is 'good enough' for now since the C I/O services don't let us do better 
     */
-
     difile->fp = opendd(dfile, difile, "rb+,type=record");
     if (difile->fp) {
       difile->dstate = D_READWRITE_BINARY;
@@ -701,30 +716,65 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
   return DIOERR_NOERROR;
 }
 
-static ssize_t read_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name, char* buffer, size_t buffer_len, DBG_Opts* opts)
+static ssize_t read_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name, char* buffer, size_t buffer_len, DBG_Opts* opts, struct DFILE* dfile)
 {
   int rc = find_member(bh, mem_name, opts);
   if (rc) {
-    errmsg(opts, "Unable to find %s(%s) for read. rc:%d\n", ds, mem_name, rc);
-    return 8;
+    info(opts, "Unable to find %s(%s) for read. rc:%d\n", ds, mem_name, rc);
+    return 0;
   }
 
-  size_t max_bytes_to_read = buffer_len-1;
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  size_t remaining_buffer_len = buffer_len;
   char* cur = buffer;
   ssize_t bytes_read;
-  size_t tot_bytes_read = 0;
+  ssize_t tot_bytes_written_to_buffer = 0;
   int num_lines = 0;
-  while ((bytes_read = read_record(bh, max_bytes_to_read, cur, opts)) >= 0) {
-    cur += bytes_read;
-    //*cur = '\n'; /* msf - choose ASCII or EBCDIC newline based on ccsid */
-    //++cur;
-    max_bytes_to_read -= (bytes_read + 1);
-    tot_bytes_read += bytes_read;
+
+  while (1) {
+    char* read_target;
+    size_t max_bytes_to_read_this_iteration;
+
+    if (length_prefix) {
+      if (remaining_buffer_len < sizeof(uint16_t)) {
+        break; 
+      }
+      read_target = cur + sizeof(uint16_t);
+      max_bytes_to_read_this_iteration = remaining_buffer_len - sizeof(uint16_t);
+    } else {
+      read_target = cur;
+      max_bytes_to_read_this_iteration = remaining_buffer_len;
+    }
+
+    if (max_bytes_to_read_this_iteration == 0) {
+      break; 
+    }
+
+    bytes_read = read_record(bh, max_bytes_to_read_this_iteration, read_target, opts);
+    
+    if (bytes_read < 0) {
+      break; 
+    }
+
+    size_t bytes_to_add_to_buffer;
+    if (length_prefix) {
+      uint16_t reclen = (uint16_t)bytes_read;
+      memcpy(cur, &reclen, sizeof(uint16_t));
+      bytes_to_add_to_buffer = sizeof(uint16_t) + bytes_read;
+    } else {
+      bytes_to_add_to_buffer = bytes_read;
+    }
+
+    cur += bytes_to_add_to_buffer;
+    tot_bytes_written_to_buffer += bytes_to_add_to_buffer;
+    remaining_buffer_len -= bytes_to_add_to_buffer;
     ++num_lines;
   }
-  fprintf(stdout, "Read %d lines (%d bytes) for member %s(%s)\n", num_lines, tot_bytes_read, ds, mem_name);      
 
-  return tot_bytes_read;
+  dbgmsg(dfile, "Read %d lines (%d bytes) for member %s(%s)\n", num_lines, tot_bytes_written_to_buffer, ds, mem_name);
+
+  return tot_bytes_written_to_buffer;
 }
 
 static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name, const char* buffer, DBG_Opts* opts, struct DFILE* dfile)
@@ -738,36 +788,29 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
   size_t size = 1;
   size_t buffer_offset = 0;
 
-  int err=0;
   if (length_prefix) {
     uint16_t reclen;
     while (buffer_offset < dfile->bufflen) {
       reclen = *((uint16_t*)(&dfile->buffer[buffer_offset]));
       buffer_offset += sizeof(uint16_t);
-        ssize_t bytes_written = write_record(bh, dfile->reclen, &dfile->buffer[buffer_offset], opts);
-        if (bytes_written < 0) {
-            errmsg(opts, "Unable to write final record for member %s(%s)\n", ds, mem_name);
-            return -1;
-        }
-      buffer_offset += bytes_written;
+      ssize_t rc = write_record(bh, reclen, &dfile->buffer[buffer_offset], opts);
+      if (rc < 0) {
+          errmsg(opts, "Unable to write record for member %s(%s)\n", ds, mem_name);
+          return -1;
+      }
+      buffer_offset += reclen;
+      ++num_lines;
     }
   } else {
     while (buffer_offset < dfile->bufflen) {
-        ssize_t bytes_written = write_record(bh, dfile->reclen-1, &dfile->buffer[buffer_offset], opts);
-        if (bytes_written < 0) {
-            errmsg(opts, "Unable to write final record for member %s(%s)\n", ds, mem_name);
-            return -1;
-        }
-        ++num_lines;
-      buffer_offset += bytes_written;
+      ssize_t rc = write_record(bh, dfile->reclen, &dfile->buffer[buffer_offset], opts);
+      if (rc < 0) {
+          errmsg(opts, "Unable to write record for member %s(%s)\n", ds, mem_name);
+          return -1;
+      }
+      ++num_lines;
+      buffer_offset += dfile->reclen;
     }
-  }
-
-  if (err) {
-    errmsg(dfile->opts, strerror(errno));
-    return DIOERR_FWRITE_FAILED;
-  } else {
-    return DIOERR_NOERROR;
   }
 
   int rc = flush(bh, opts); /* flush any remaining records */
@@ -791,8 +834,7 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
     errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
     return 8;
   }
-  //if (opts->debug) {
-  if (0) {
+  if (dfile->debug) {
     fprintf(stdout, "MSTAT information for %s(%s) at time of creation.\n");
     print_member(&mstat, 1);
   }
@@ -823,9 +865,8 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   }
 
    ssize_t bytes_read;  
-  if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts)) < 0 ) {
-    errmsg(dfile->opts, "Unable to read back initial member %s(%s). rc:%d", difile->dataset_full_name, rc);
-    return 8;    
+  if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts, dfile)) < 0 ) {
+    info(dfile->opts, "Unable to read back dataset %s. rc:%d", difile->dataset_full_name, rc);
   }
 #if 0
   if (bytes_read != first_file_len || !memcmp(buffer, ascii_data, first_file_len)) {
@@ -955,7 +996,7 @@ static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
     return 8;    
   }
 
-    return overall_rc;
+  return overall_rc;
 }
 
 
