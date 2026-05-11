@@ -17,6 +17,7 @@
 #include <_Nascii.h>
 #include <unistd.h>
 #include <cjson/cJSON.h>
+#include <_Ccsid.h>
 
 #define _OPEN_SYS_EXT
 #include <sys/ps.h>
@@ -27,6 +28,22 @@
 #define DIO_MSG_BUFF_LEN (4095)
 
 const struct s99_rbx s99rbxtemplate = {"S99RBX",S99RBXVR,{0,1,0,0,0,0,0},0,0,0};
+
+static int get_space_char(int ccsid) {
+  if (ccsid == 0) {
+    return 0x40; // Default to EBCDIC for untagged datasets
+  }
+  if (ccsid > 0) {
+    __csType cs = __CcsidType(ccsid);
+    if (cs == _CSTYPE_ASCII || cs == _CSTYPE_UTF8) {
+      return 0x20; // ASCII space
+    }
+    if (cs == _CSTYPE_EBCDIC) {
+      return 0x40; // EBCDIC space
+    }
+  }
+  return -1; // Default to disable trimming for unknown/multi-byte encodings
+}
 
 void dbgmsg(struct DFILE* dfile, const char* format, ...)
 {
@@ -703,9 +720,9 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
       memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
       difile->cur_read_offset += sizeof(reclen);
     }
-    memcpy(&dfile->buffer[difile->cur_read_offset], record, bytes_to_copy);
-    if (!is_binary)
-      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], bytes_to_copy); 
+    memcpy(&dfile->buffer[difile->cur_read_offset], record, rc);
+    if (!isbinary)
+      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], rc);
 #ifdef DEBUG
     printf("%5.5u <%*.*s>\n", reclen, reclen, reclen, record);
 #endif
@@ -1144,15 +1161,32 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
   struct f_cnvrt req = {SETCVTOFF, 0, 0};
   fcntl(temp_fd, F_CONTROL_CVT, &req);
 
+  int space_char = get_space_char(dfile->ccsid);
   int length_prefix = has_length_prefix(dfile->recfm);
   int i = 0;
   char *data = dfile->buffer;
   if (length_prefix) {
     uint16_t reclen;
     while (i < dfile->bufflen) {
+      if (i + sizeof(reclen) > dfile->bufflen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: header truncated
+      }
       memcpy(&reclen, &data[i], sizeof(reclen));
       i += sizeof(reclen);
-      if (write(temp_fd, &data[i], reclen) != reclen) {
+      int actual_len = reclen;
+      if (i + actual_len > dfile->bufflen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: record truncated
+      }
+      if (!force_binary && space_char != -1) {
+        while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
+          actual_len--;
+        }
+      }
+      if (write(temp_fd, &data[i], actual_len) != actual_len) {
         close_dataset(dfile);
         close(temp_fd);
         return 1;
@@ -1167,7 +1201,16 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
     }
   } else {
     while (i < dfile->bufflen) {
-      if (write(temp_fd, &data[i], dfile->reclen) != dfile->reclen) {
+      int actual_len = dfile->reclen;
+      if (i + actual_len > dfile->bufflen) {
+        actual_len = dfile->bufflen - i; // Clamp to remaining buffer
+      }
+      if (!force_binary && space_char != -1) {
+        while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
+          actual_len--;
+        }
+      }
+      if (write(temp_fd, &data[i], actual_len) != actual_len) {
         close_dataset(dfile);
         close(temp_fd);
         return 1;
