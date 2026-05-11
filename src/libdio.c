@@ -32,12 +32,14 @@ const struct s99_rbx s99rbxtemplate = {"S99RBX",S99RBXVR,{0,1,0,0,0,0,0},0,0,0};
 static int get_space_char(int ccsid) {
   if (ccsid > 0) {
     __csType cs = __CcsidType(ccsid);
-    if (cs == _CSTYPE_ASCII || cs == _CSTYPE_UTF8 || cs == _CSTYPE_UTF16 ||
-        cs == _CSTYPE_UTF32) {
+    if (cs == _CSTYPE_ASCII || cs == _CSTYPE_UTF8) {
       return 0x20; // ASCII space
     }
+    if (cs == _CSTYPE_EBCDIC) {
+      return 0x40; // EBCDIC space
+    }
   }
-  return 0x40; // Default EBCDIC space
+  return -1; // Default to disable trimming for unknown/multi-byte encodings
 }
 
 void dbgmsg(struct DFILE* dfile, const char* format, ...)
@@ -715,9 +717,9 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
       memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
       difile->cur_read_offset += sizeof(reclen);
     }
-    memcpy(&dfile->buffer[difile->cur_read_offset], record, bytes_to_copy);
+    memcpy(&dfile->buffer[difile->cur_read_offset], record, rc);
     if (!isbinary)
-      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], bytes_to_copy);
+      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], rc);
 #ifdef DEBUG
     printf("%5.5u <%*.*s>\n", reclen, reclen, reclen, record);
 #endif
@@ -1163,10 +1165,16 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
   if (length_prefix) {
     uint16_t reclen;
     while (i < dfile->bufflen) {
+      if (i + sizeof(reclen) > dfile->bufflen) {
+        break; // Corrupt buffer
+      }
       memcpy(&reclen, &data[i], sizeof(reclen));
       i += sizeof(reclen);
       int actual_len = reclen;
-      if (!force_binary) {
+      if (i + actual_len > dfile->bufflen) {
+        actual_len = dfile->bufflen - i; // Limit to remaining buffer
+      }
+      if (!force_binary && space_char != -1) {
         while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
           actual_len--;
         }
@@ -1187,7 +1195,7 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
   } else {
     while (i < dfile->bufflen) {
       int actual_len = dfile->reclen;
-      if (!force_binary) {
+      if (!force_binary && space_char != -1) {
         while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
           actual_len--;
         }
