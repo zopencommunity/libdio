@@ -30,6 +30,9 @@
 const struct s99_rbx s99rbxtemplate = {"S99RBX",S99RBXVR,{0,1,0,0,0,0,0},0,0,0};
 
 static int get_space_char(int ccsid) {
+  if (ccsid == 0) {
+    return 0x40; // Default to EBCDIC for untagged datasets
+  }
   if (ccsid > 0) {
     __csType cs = __CcsidType(ccsid);
     if (cs == _CSTYPE_ASCII || cs == _CSTYPE_UTF8) {
@@ -1166,13 +1169,17 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
     uint16_t reclen;
     while (i < dfile->bufflen) {
       if (i + sizeof(reclen) > dfile->bufflen) {
-        break; // Corrupt buffer
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: header truncated
       }
       memcpy(&reclen, &data[i], sizeof(reclen));
       i += sizeof(reclen);
       int actual_len = reclen;
       if (i + actual_len > dfile->bufflen) {
-        actual_len = dfile->bufflen - i; // Limit to remaining buffer
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: record truncated
       }
       if (!force_binary && space_char != -1) {
         while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
@@ -1195,6 +1202,9 @@ int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
   } else {
     while (i < dfile->bufflen) {
       int actual_len = dfile->reclen;
+      if (i + actual_len > dfile->bufflen) {
+        actual_len = dfile->bufflen - i; // Clamp to remaining buffer
+      }
       if (!force_binary && space_char != -1) {
         while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
           actual_len--;
