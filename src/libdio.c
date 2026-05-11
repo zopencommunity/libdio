@@ -1,0 +1,1343 @@
+#define _ENHANCED_ASCII_EXT 0xFFFFFFFF 
+#define _OPEN_SYS_FILE_EXT 1
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include "s99.h"
+#include "bpamio.h"
+#include "dio.h"
+#include "dioint.h"
+#include "memdir.h"
+#include "wrappers.h"
+#include "dbgopts.h"
+#include <_Nascii.h>
+#include <unistd.h>
+#include <cjson/cJSON.h>
+#include <_Ccsid.h>
+
+#define _OPEN_SYS_EXT
+#include <sys/ps.h>
+
+//#define DEBUG 1
+#define DD_SYSTEM "????????"
+#define ERRNO_NONEXISTANT_FILE (67)
+#define DIO_MSG_BUFF_LEN (4095)
+
+const struct s99_rbx s99rbxtemplate = {"S99RBX",S99RBXVR,{0,1,0,0,0,0,0},0,0,0};
+
+static int get_space_char(int ccsid) {
+  if (ccsid == 0) {
+    return 0x40; // Default to EBCDIC for untagged datasets
+  }
+  if (ccsid > 0) {
+    __csType cs = __CcsidType(ccsid);
+    if (cs == _CSTYPE_ASCII || cs == _CSTYPE_UTF8) {
+      return 0x20; // ASCII space
+    }
+    if (cs == _CSTYPE_EBCDIC) {
+      return 0x40; // EBCDIC space
+    }
+  }
+  return -1; // Default to disable trimming for unknown/multi-byte encodings
+}
+
+void dbgmsg(struct DFILE* dfile, const char* format, ...)
+{
+  if (!dfile->debug) {
+    return;
+  }
+
+  va_list args;
+  va_start(args, format);
+
+  fprintf(stderr, "[DEBUG] ");
+  vfprintf(stderr, format, args);
+  fprintf(stderr, "\n");
+
+  va_end(args);
+}
+
+
+void strupper(char* str)
+{
+  for (int i=0; i<strlen(str); ++i) {
+    if (islower(str[i])) {
+      str[i] = toupper(str[i]);
+    }
+  }
+}
+
+void strlower(char* str)
+{
+  for (int i=0; i<strlen(str); ++i) {
+    if (isupper(str[i])) {
+      str[i] = tolower(str[i]);
+    }
+  }
+}
+
+int has_member(struct DFILE* dfile)
+{
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  return difile->member_name[0] != '\0';
+}
+
+static int has_mlqs(struct DIFILE* difile)
+{
+  return difile->mlqs[0] != '\0';
+}
+
+
+struct DS_INTERNALS {
+  const char* ds_start;
+  const char* name_end;
+  const char* ds_end;
+  const char* hlq; /* could be null */
+  const char* mlqs;
+  const char* llq;
+  const char* first_dot;
+  const char* last_dot;
+  const char* mem_start; /* could be null */
+  const char* open_paren; /* could be null */
+  const char* close_paren; /* could be null */
+  int is_relative:1;
+};
+
+static enum DIOERR check_dataset(struct DFILE* dfile, const char* dataset_name, struct DS_INTERNALS* dsi)
+{
+  size_t dataset_name_len = strlen(dataset_name);
+
+  /*
+   * Check the input dataset name conforms to the syntax: //'<dataset>' or //<dataset>
+   */
+  if ((dataset_name_len > DS_MAX+MEM_MAX+2+2+2) || (dataset_name_len < 2+2)) {
+    errmsg(dfile->opts, "Dataset name %s is not a valid dataset name of format: //<dataset> or //'<dataset>'.", dataset_name);
+    return DIOERR_LE_DATASET_NAME_TOO_LONG_OR_TOO_SHORT;
+  }
+  if (memcmp(dataset_name, "//", 2)) {
+    errmsg(dfile->opts, "Dataset name %s does not start with // and therefore is not a valid dataset name.", dataset_name);
+    return DIOERR_INVALID_LE_DATASET_NAME;
+  }
+
+  if (!memcmp(dataset_name, "//'", 3)) {
+    if (dataset_name[dataset_name_len-1] != '\'') {
+      errmsg(dfile->opts, "Dataset name %s does not have balanced single quotes.", dataset_name);
+      return DIOERR_LE_DATASET_NAME_QUOTE_MISMATCH;
+    }
+    dsi->is_relative = 0;
+    dsi->ds_start = &dataset_name[3];
+    dsi->name_end = &dataset_name[dataset_name_len-1];
+  } else {
+    dsi->is_relative = 1;
+    dsi->ds_start = &dataset_name[2];
+    dsi->name_end = &dataset_name[dataset_name_len];
+  }
+
+  /*
+   * Check the dataset follows member name syntax: <dataset> or <dataset>(member)
+   */
+  dsi->open_paren = strchr(dataset_name, '(');
+  dsi->close_paren = strchr(dataset_name, ')');
+
+  if (dsi->open_paren && dsi->close_paren) {
+    size_t memlen = dsi->close_paren - dsi->open_paren - 1;
+    if (memlen > MEM_MAX) {
+      errmsg(dfile->opts, "Member name of %s is more than %d characters.", dataset_name, MEM_MAX);
+      return DIOERR_MEMBER_NAME_TOO_LONG;
+    }
+    /* dataset member - valid */
+    dsi->mem_start = dsi->open_paren+1;
+    dsi->ds_end = dsi->open_paren;
+  } else if (!dsi->open_paren && !dsi->close_paren) {
+    /* dataset - valid, no member name */
+    dsi->mem_start = NULL;
+    dsi->ds_end = dsi->name_end;
+  } else {
+    /* mis-matched parens - invalid */
+    errmsg(dfile->opts, "Dataset %s is not a valid dataset name or dataset member name.", dataset_name);
+    return DIOERR_LE_DATASET_NAME_PAREN_MISMATCH;
+  }
+
+  dsi->first_dot = strchr(dsi->ds_start, '.');
+  dsi->last_dot = strrchr(dsi->ds_start, '.');
+
+  /*
+   * Check the HLQ, MLQs, LLQ are all reasonable length (more detailed checks will be delegated to SVC99
+   */
+#ifdef DEBUG
+  printf("dataset_name:%p ds_start:%p first_dot:%p last_dot:%p mem_start:%p ds_end:%p open_paren:%p close_paren:%p mem_start:%p name_end:%p is_relative:%d\n",
+    dataset_name, dsi->ds_start, dsi->first_dot, dsi->last_dot, dsi->mem_start, dsi->ds_end, dsi->open_paren, dsi->close_paren, dsi->mem_start, dsi->name_end, dsi->is_relative);
+#endif
+
+  if (dsi->first_dot && dsi->last_dot) {
+    /* Note first_dot and last_dot can be the same: consider SYS1.MACLIB */
+  } else {
+    errmsg(dfile->opts, "Dataset %s should have at least 1 qualifiers.", dataset_name);
+    return DIOERR_NOT_ENOUGH_QUALIFIERS;
+  }
+
+  if (!dsi->is_relative) {
+    dsi->hlq = dsi->ds_start; 
+    size_t hlq_len = dsi->first_dot - dsi->hlq - 1;
+    if (hlq_len > HLQ_MAX) {
+      errmsg(dfile->opts, "Dataset %s high level qualifier is too long.", dataset_name);
+      return DIOERR_HLQ_TOO_LONG;
+    }
+    if (dsi->first_dot == dsi->last_dot) {
+      dsi->mlqs = NULL;
+    } else {
+      dsi->mlqs = dsi->first_dot + 1;
+    }
+  } else {
+    dsi->hlq = NULL;
+    if (dsi->first_dot == dsi->last_dot) {
+      dsi->mlqs = NULL;
+    } else {
+      dsi->mlqs = dsi->ds_start;
+    }
+  }
+
+  if (dsi->mlqs) {
+    size_t mlqslen = dsi->last_dot - dsi->mlqs - 1;
+    if (mlqslen > MLQS_MAX) {
+      errmsg(dfile->opts, "Dataset %s mid level qualifiers are too long.", dataset_name);
+      return DIOERR_MLQS_TOO_LONG;
+    }
+  }
+
+  dsi->llq = dsi->last_dot + 1;
+  size_t llqlen = dsi->ds_end - dsi->llq - 1;
+  if (llqlen > LLQ_MAX) {
+    errmsg(dfile->opts, "Dataset %s low level qualifier is too long.", dataset_name);
+    return DIOERR_LLQ_TOO_LONG;
+  }
+
+  return DIOERR_NOERROR;
+}
+
+static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_name, struct DIFILE* difile)
+{
+  size_t ds_full_len;
+  size_t ds_len;
+  size_t hlq_len;
+  size_t mlqs_len;
+  size_t llq_len;
+  size_t mem_len;
+
+  enum DIOERR rc;
+  struct DS_INTERNALS dsi;
+  rc = check_dataset(dfile, dataset_name, &dsi);
+
+  if (rc) {
+    return rc;
+  }
+  ds_full_len = dsi.name_end - dsi.ds_start;
+  ds_len = dsi.ds_end - dsi.ds_start;
+
+  if (dsi.is_relative) {
+    __getuserid(difile->hlq, HLQ_MAX);
+    hlq_len = strlen(difile->hlq);
+  } else {
+    hlq_len = dsi.first_dot - dsi.hlq;
+    memcpy(difile->hlq, dsi.hlq, hlq_len);
+    difile->hlq[hlq_len] = '\0';
+  }
+
+  if (dsi.is_relative) {
+    memcpy(difile->dataset_full_name, difile->hlq, hlq_len);
+    difile->dataset_full_name[hlq_len] = '.';
+    memcpy(&difile->dataset_full_name[hlq_len+1], dsi.ds_start, ds_full_len);
+    ds_full_len += (hlq_len+1);
+  } else {
+    memcpy(difile->dataset_full_name, dsi.ds_start, ds_full_len);
+  }
+  difile->dataset_full_name[ds_full_len] = '\0';
+
+  if (dsi.is_relative) {
+    memcpy(difile->dataset_name, difile->hlq, hlq_len);
+    difile->dataset_name[hlq_len] = '.';
+    memcpy(&difile->dataset_name[hlq_len+1], dsi.ds_start, ds_len);
+    ds_len += (hlq_len+1);
+  } else {
+    memcpy(difile->dataset_name, dsi.ds_start, ds_len);
+  }
+  difile->dataset_name[ds_len] = '\0';
+
+  if (dsi.mlqs) {
+    mlqs_len = dsi.last_dot - dsi.mlqs;
+  } else {
+    mlqs_len = 0;
+  }
+  memcpy(difile->mlqs, dsi.mlqs, mlqs_len);
+  difile->mlqs[mlqs_len] = '\0';
+
+  llq_len = dsi.ds_end - dsi.llq;
+  memcpy(difile->llq, dsi.llq, llq_len);
+  difile->llq[llq_len] = '\0';
+
+  if (dsi.mem_start) {
+    mem_len = dsi.close_paren - dsi.mem_start;
+    memcpy(difile->member_name, dsi.mem_start, mem_len);
+    difile->member_name[mem_len] = '\0';
+  } else {
+    difile->member_name[0] = '\0';
+  }
+
+  strupper(difile->dataset_full_name);
+  strupper(difile->dataset_name);
+  strupper(difile->member_name);
+  strupper(difile->hlq);
+  strupper(difile->mlqs);
+  strupper(difile->llq);
+
+  initialize_configuration(difile->dataset_name, difile->llq, difile->unix_extension, &dfile->txtflag, &dfile->ccsid);
+  strlower(difile->unix_extension);
+
+#ifdef DEBUG
+  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  printf("Original <%s> full <%s> name <%s> member <%s> hlq <%s> mlqs <%s> llq <%s> ext <%s> text <%d> ccsid <%d>\n", 
+    dataset_name, difile->dataset_full_name, difile->dataset_name, difile->member_name, 
+    difile->hlq, difile->mlqs, difile->llq, difile->unix_extension, dfile->txtflag, dfile->ccsid);
+  __ae_thread_setmode(prevMode);
+#endif
+  return DIOERR_NOERROR;
+}
+
+static const char* dsorgs_internal(enum DSORG dsorg)
+{
+  switch(dsorg) {
+    case D_PDS: return "PDS";
+    case D_PDSE: return "PDSE";
+    case D_SEQ: return "SEQ";
+  }
+  return "UNK";
+}
+const char* dsorgs(enum DSORG dsorg, char* buff)
+{
+  const char* es = dsorgs_internal(dsorg);
+  size_t len = strlen(es);
+  memcpy(buff, es, len+1);
+  if (__isASCII()) {
+    __e2a_l(buff, len);
+  }
+  return buff;
+}
+
+static const char* recfms_internal(enum DRECFM drecfm)
+{
+  switch(drecfm) {
+    case D_F: return "F";
+    case D_V: return "V";
+    case D_U: return "U";
+    case D_VA: return "VA";
+    case D_FA: return "FA";
+  }
+  return "UNK";
+}
+
+const char* recfms(enum DRECFM drecfm, char* buff)
+{
+  const char* es = recfms_internal(drecfm);
+  size_t len = strlen(es);
+  memcpy(buff, es, len+1);
+  if (__isASCII()) {
+    __e2a_l(buff, len);
+  }
+  return buff;
+}
+
+const char* dccsids(int dccsid, char* buff)
+{
+  switch(dccsid) {
+    case DCCSID_NOTSET:
+      strcpy(buff, "?");
+      break;
+    case DCCSID_BINARY:
+      strcpy(buff, "B");
+      break;
+    default:
+      sprintf(buff, "%u", dccsid);
+      break;
+  }
+  size_t len = strlen(buff);
+  if (__isASCII()) {
+    __e2a_l(buff, len);
+  }
+  return buff;
+}
+
+static const char* dstates(enum DSTATE dstate)
+{
+  switch(dstate) {
+    case D_CLOSED: return "closed";
+    case D_READ_BINARY: return "rb";
+    case D_READWRITE_BINARY: return "rb+";
+    case D_WRITE_BINARY: return "wb";
+  }
+  return "UNK";
+}
+
+static FILE* opendd(struct DFILE* dfile, struct DIFILE* difile, const char* openfmt)
+{
+ char copendd[DD_MAX+MEM_MAX+2+2+2+1+1];
+  if (has_member(dfile)) {
+    sprintf(copendd, "//DD:%s(%s)", difile->ddname, difile->member_name);
+  } else {
+    sprintf(copendd, "//DD:%s", difile->ddname);
+  }
+  FILE* fp = fopen(copendd, openfmt);
+  if (fp == NULL) {
+    errmsg(dfile->opts, strerror(errno));
+  }
+  return fp;
+}
+
+void init_opts(DBG_Opts* opts, struct DFILE* dfile)
+{
+  opts->debug = dfile->debug;
+  opts->error_buffer = (DBG_MsgBuffer*)malloc(sizeof(DBG_MsgBuffer));
+  opts->error_buffer->buffer = dfile->msgbuff;  // ✅
+  opts->error_buffer->size = dfile->msgbufflen;
+  opts->info_buffer = 0;
+  opts->verbose = 0;
+}
+
+
+
+struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
+{
+  enum DIOERR rc;
+
+  /*
+   * We may want to change this, but for right now, we want
+   * to ensure that zero-length variable records are properly
+   * mapped
+   */
+  setenv("_EDC_ZERO_RECLEN", "1", 1);
+
+  errno = 0;
+
+  struct DFILE* dfile = calloc(1, sizeof(struct DFILE));
+  if (!dfile) {
+    return NULL;
+  }
+  dfile->msgbuff = calloc(1, DIO_MSG_BUFF_LEN+1);
+  if (!dfile->msgbuff) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
+  }
+  dfile->msgbufflen = DIO_MSG_BUFF_LEN;
+  dfile->logstream = logstream;
+  dfile->opts = calloc(1, sizeof(DBG_Opts));
+
+  struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
+  if (!difile) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
+  }
+
+  // Check if LIBDIO_DEBUG environment variable is set
+  if (!dfile->debug) {
+    const char* debug_env = getenv("LIBDIO_DEBUG");
+    if (debug_env && strcmp(debug_env, "1") == 0) {
+      dfile->debug = 1;
+    }
+  }
+
+  dfile->internal = difile;
+
+  char* dataset_name_copy = strdup(dataset_name);
+  size_t len = strlen(dataset_name_copy);
+  if (__isASCII()) {
+    __a2e_l(dataset_name_copy, len);
+  }
+  rc = init_dataset_info(dfile, dataset_name_copy, difile);
+  if (rc) {
+    dfile->err = rc;
+    return dfile;
+  }
+
+  struct s99_common_text_unit dsn = { DALDSNAM, 1, 0, 0 };
+  struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
+  struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
+
+  init_opts(dfile->opts, dfile);
+  rc = init_dsnam_text_unit(difile->dataset_name, &dsn, dfile->opts);
+  if (rc) {
+    dfile->err = rc;
+  
+    return dfile;
+  }
+  rc = dsdd_alloc(&dsn, &dd, &stats, dfile->opts);
+  if (rc) {
+    dfile->err = rc;
+    return dfile;
+  }
+
+  memcpy(difile->ddname, dd.s99tupar, dd.s99tulng);
+  difile->ddname[dd.s99tulng] = '\0';
+
+  difile->dstate = D_CLOSED;
+
+#ifdef DEBUG
+  printf("datasetname:%s\n", difile->dataset_name);
+  printf("allocated ddname:%s\n", difile->ddname);
+#endif
+  
+  int use_bpam_services = 0;
+  if (has_member(dfile)) {
+    use_bpam_services = 1;
+  }
+
+  if (use_bpam_services) {
+    //bh->ddname = difile->ddname; TODO: do we close it?
+    FM_BPAMHandle* bh = open_pds_for_read(difile->dataset_name, dfile->opts);
+    if (rc) {
+      if (rc == 1) { // soft error, likely not a pdse
+        if (!record_format(bh, dfile->opts)) {
+          use_bpam_services = 0;
+          close_pds(bh, dfile->opts);
+        }
+      }
+      else { // critical error, exit
+        dfile->err = rc;
+        return dfile;
+      }
+    }
+/*
+    struct mstat read_mstat;
+    if (readmemdir_entry(bh, difile->member_name, &read_mstat, dfile->opts)) {
+       use_bpam_services = 0;
+       close_pds(bh, dfile->opts);
+    }
+*/
+
+    if (use_bpam_services) {
+    record_format_t rf = record_format(bh, dfile->opts);
+    switch (rf) {
+      case RECORD_FORMAT_F:
+      case RECORD_FORMAT_FB:
+        dfile->recfm = D_F;
+        break;
+      case RECORD_FORMAT_V:
+      case RECORD_FORMAT_VB:
+        dfile->recfm = D_V;
+        break;
+      case RECORD_FORMAT_U:
+        dfile->recfm = D_U;
+        break;
+      default:
+        errmsg(dfile->opts,
+              "Dataset %s is not F, V, or U format. open_dataset not supported at this time.",
+              dataset_name_copy);
+        dfile->err = DIOERR_UNSUPPORTED_RECFM;
+        return dfile;
+    }
+      dfile->reclen = record_length(bh, dfile->opts);
+      difile->bpamhandle = bh;
+
+    }
+  }
+
+  if (!use_bpam_services) {
+    /*
+    * Note - there is a timing window here and it is not efficient to 
+    * open the dataset twice (once to get the dataset characteristics and once to read or write)
+    * but this is 'good enough' for now since the C I/O services don't let us do better 
+    */
+    difile->fp = opendd(dfile, difile, "rb+,type=record");
+    if (difile->fp) {
+      difile->dstate = D_READWRITE_BINARY;
+    } else {
+      if ((errno == ERRNO_NONEXISTANT_FILE) && has_member(dfile)) {
+        /*
+        * This is a PDS or PDSE member, and the member does not exist yet.
+        * We need to open the member in write to get the attributes of the actual
+        * PDS(E) member, otherwise if we only specify the PDS(E), we will get
+        * the attributes for working with the PDS(E) directly, which is wrong (unformatted)
+        * This is 'ok' because if we don't have write access to the PDS(E) to create a 
+        * member, we should know this now now rather than later.
+        */
+      
+        difile->fp = opendd(dfile, difile, "wb,type=record");
+        if (!difile->fp) {
+          return dfile;
+        }
+        difile->dstate = D_WRITE_BINARY;
+      } else {
+        /*
+        * Try to open 'rb' (perhaps file is write protected)
+        */
+        difile->fp = opendd(dfile, difile, "rb,type=record");
+        if (difile->fp) {
+          dfile->readonly = 1;
+          difile->dstate = D_READ_BINARY;
+        } else {
+          errmsg(dfile->opts, "Unable to obtain dataset %s for READ.", dataset_name_copy);
+          dfile->err = DIOERR_FOPEN_FOR_READ_FAILED;
+          return dfile;
+        }
+      }
+    }
+
+    fldata_t info;
+    rc = __fldata(difile->fp, NULL, &info);
+    if (rc) {
+      errmsg(dfile->opts, "Unable to obtain file information for %s.", dataset_name_copy);
+      close_dataset(dfile);
+      dfile->err = DIOERR_FLDATA_FAILED;
+      return dfile;
+    }
+
+    if (info.__recfmF) {
+      if (info.__recfmASA) {
+        dfile->recfm = D_FA;
+      } else {
+        dfile->recfm = D_F;
+      }
+    } else if (info.__recfmV) {
+      if (info.__recfmASA) {
+        dfile->recfm = D_VA;
+      } else {
+        dfile->recfm = D_V;
+      }
+    } else if (info.__recfmU) {
+      dfile->recfm = D_U;
+    } else {
+      errmsg(dfile->opts, "Dataset %s is not F, V, or U format. open_dataset not supported at this time.", dataset_name_copy);
+      dfile->err = DIOERR_UNSUPPORTED_RECFM;
+      return dfile;
+    }
+
+    if (info.__dsorgPS) {
+      dfile->dsorg = D_SEQ;
+    } else {
+      errmsg(dfile->opts, "Dataset %s is not PDS, PDSE, or SEQ organization. open_dataset not supported at this time.", dataset_name_copy);
+      dfile->err = DIOERR_UNSUPPORTED_RECFM;
+      return dfile;
+    }
+    dfile->reclen = info.__maxreclen;
+  }
+
+  dfile->dccsid = DCCSID_NOTSET; 
+
+#ifdef DEBUG
+  char ccsidstr[DCCSID_MAX];
+  printf("Dataset attributes: dsorg:%s recfm:%s lrecl:%d dstate:%s ccsid:%s\n", 
+    dsorgs_internal(dfile->dsorg), recfms_internal(dfile->recfm), dfile->reclen, dstates(difile->dstate), dccsids(dfile->dccsid, ccsidstr));
+#endif // 0
+
+  return dfile;
+}
+
+int has_length_prefix(enum DRECFM recfm)
+{
+  int length_prefix;
+  switch (recfm) {
+    case D_F:
+    case D_FA:
+    case D_U:
+      length_prefix=0;
+      break;
+    case D_V:
+    case D_VA:
+      length_prefix=1;
+  }
+  return length_prefix;
+}
+
+#define INIT_READ_BUFFER_SIZE (1<<24) /* 16MB */
+static enum DIOERR read_dataset_internal(struct DFILE* dfile)
+{
+  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
+  char record[DS_MAX_REC_SIZE];
+  int rc;
+
+  errno = 0;
+
+  if (difile->dstate == D_WRITE_BINARY) {
+    rc=fclose(difile->fp);
+    if (rc) {
+      errmsg(dfile->opts, strerror(errno));
+      return DIOERR_FCLOSE_FAILED_ON_READ;
+    }
+    difile->dstate = D_CLOSED;
+  }
+
+  if (difile->dstate == D_READWRITE_BINARY) {
+    rewind(difile->fp);
+  }
+
+  if (difile->dstate == D_CLOSED) {
+    difile->fp = opendd(dfile, difile, "rb+,type=record");
+    if (!difile->fp) {
+      return DIOERR_OPENDD_FOR_READ_FAILED;
+    }
+  }
+  difile->dstate = D_READWRITE_BINARY;
+
+  if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
+    difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
+    dfile->buffer = malloc(difile->read_buffer_size);
+    if (!dfile->buffer) {
+      errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
+      return DIOERR_READ_BUFFER_ALLOC_FAILED;
+    }
+  }
+  difile->cur_read_offset = 0;
+
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  size_t size = 1;
+  size_t count = dfile->reclen;
+  size_t bytes_to_copy;
+  int isbinary = 0;
+  uint16_t reclen;
+  errno = 0;
+  while (1) {
+    rc = fread(record, size, count, difile->fp);
+    if (errno) {
+      errmsg(dfile->opts, strerror(errno));
+      return DIOERR_FREAD_FAILED;
+    }
+    if (feof(difile->fp)) {
+      break;
+    }
+    bytes_to_copy = rc;
+    if (length_prefix) {
+      bytes_to_copy += sizeof(uint16_t);
+    }
+    if (difile->cur_read_offset + bytes_to_copy > difile->read_buffer_size) {
+      errmsg(dfile->opts, "To be implemented - need to write code to grow buffer for reading in file.");
+      return DIOERR_LARGE_READ_BUFFER_NOT_IMPLEMENTED_YET;
+    }
+    reclen = rc;
+    if (length_prefix) {
+      memcpy(&dfile->buffer[difile->cur_read_offset], &reclen, sizeof(reclen));
+      difile->cur_read_offset += sizeof(reclen);
+    }
+    memcpy(&dfile->buffer[difile->cur_read_offset], record, rc);
+    if (!isbinary)
+      isbinary = is_binary(&dfile->buffer[difile->cur_read_offset], rc);
+#ifdef DEBUG
+    printf("%5.5u <%*.*s>\n", reclen, reclen, reclen, record);
+#endif
+    difile->cur_read_offset += rc;
+  }
+  dfile->bufflen = difile->cur_read_offset;
+  dfile->is_binary = isbinary;
+  return DIOERR_NOERROR;
+}
+
+static ssize_t read_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name, char* buffer, size_t buffer_len, DBG_Opts* opts, struct DFILE* dfile)
+{
+  int rc = find_member(bh, mem_name, opts);
+  if (rc) {
+    info(opts, "Unable to find %s(%s) for read. rc:%d\n", ds, mem_name, rc);
+    return 0;
+  }
+
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  size_t remaining_buffer_len = buffer_len;
+  char* cur = buffer;
+  ssize_t bytes_read;
+  ssize_t tot_bytes_written_to_buffer = 0;
+  int num_lines = 0;
+
+  while (1) {
+    char* read_target;
+    size_t max_bytes_to_read_this_iteration;
+
+    if (length_prefix) {
+      if (remaining_buffer_len < sizeof(uint16_t)) {
+        break; 
+      }
+      read_target = cur + sizeof(uint16_t);
+      max_bytes_to_read_this_iteration = remaining_buffer_len - sizeof(uint16_t);
+    } else {
+      read_target = cur;
+      max_bytes_to_read_this_iteration = remaining_buffer_len;
+    }
+
+    if (max_bytes_to_read_this_iteration == 0) {
+      break; 
+    }
+
+    bytes_read = read_record(bh, max_bytes_to_read_this_iteration, read_target, opts);
+    
+    if (bytes_read < 0) {
+      break; 
+    }
+
+    size_t bytes_to_add_to_buffer;
+    if (length_prefix) {
+      uint16_t reclen = (uint16_t)bytes_read;
+      memcpy(cur, &reclen, sizeof(uint16_t));
+      bytes_to_add_to_buffer = sizeof(uint16_t) + bytes_read;
+    } else {
+      bytes_to_add_to_buffer = bytes_read;
+    }
+
+    cur += bytes_to_add_to_buffer;
+    tot_bytes_written_to_buffer += bytes_to_add_to_buffer;
+    remaining_buffer_len -= bytes_to_add_to_buffer;
+    ++num_lines;
+  }
+
+  dbgmsg(dfile, "Read %d lines (%d bytes) for member %s(%s)\n", num_lines, tot_bytes_written_to_buffer, ds, mem_name);
+
+  return tot_bytes_written_to_buffer;
+}
+
+static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name, const char* buffer, DBG_Opts* opts, struct DFILE* dfile)
+{
+  const char* cur = buffer;
+  const char* next;
+  int num_lines = 0;
+
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  size_t size = 1;
+  size_t buffer_offset = 0;
+
+  if (length_prefix) {
+    uint16_t reclen;
+    while (buffer_offset < dfile->bufflen) {
+      reclen = *((uint16_t*)(&dfile->buffer[buffer_offset]));
+      buffer_offset += sizeof(uint16_t);
+      ssize_t rc = write_record(bh, reclen, &dfile->buffer[buffer_offset], opts);
+      if (rc < 0) {
+          errmsg(opts, "Unable to write record for member %s(%s)\n", ds, mem_name);
+          return -1;
+      }
+      buffer_offset += reclen;
+      ++num_lines;
+    }
+  } else {
+    while (buffer_offset < dfile->bufflen) {
+      ssize_t rc = write_record(bh, dfile->reclen, &dfile->buffer[buffer_offset], opts);
+      if (rc < 0) {
+          errmsg(opts, "Unable to write record for member %s(%s)\n", ds, mem_name);
+          return -1;
+      }
+      ++num_lines;
+      buffer_offset += dfile->reclen;
+    }
+  }
+
+  int rc = flush(bh, opts); /* flush any remaining records */
+  if (rc < 0) {
+    errmsg(opts, "Unable to write final block for member %s(%s)\n", ds, mem_name);
+    return -1;
+  }
+
+  struct mstat mstat;
+  char userid[USERID_LEN+1];
+  char* alias_name = NULL;
+  void* ttr = NULL; /* msf - perhaps the TTR should not be part of the mstat? */
+
+  int ccsid = 1047;
+  if (!create_mstat(&mstat, userid, alias_name, mem_name, ttr, num_lines, ccsid, opts)) {
+    errmsg(opts, "Unable to create member statistics for PDS member %s(%s). Member not written\n", ds, mem_name);
+    return 8;
+  }
+
+  if (enq_dataset_member(ds, mem_name, opts)) {
+    errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+    return 8;
+  }
+  if (dfile->debug) {
+    fprintf(stdout, "MSTAT information for %s(%s) at time of creation.\n");
+    print_member(&mstat, 1);
+  }
+  if (writememdir_entry(bh, &mstat, opts)) {
+    errmsg(opts, "Unable to write directory entry for member %s(%s)\n", ds, mem_name);
+    return 8;
+  }
+  if (deq_dataset_member(ds, mem_name, opts)) {
+    errmsg(opts, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+    return 8;
+  }
+  return 0;
+}
+
+static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
+{
+    struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
+    int rc;
+    errno = 0;
+
+  if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
+    difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
+    dfile->buffer = malloc(difile->read_buffer_size);
+    if (!dfile->buffer) {
+      errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
+      return DIOERR_READ_BUFFER_ALLOC_FAILED;
+    }
+  }
+
+   ssize_t bytes_read;  
+  if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts, dfile)) < 0 ) {
+    info(dfile->opts, "Unable to read back dataset %s. rc:%d", difile->dataset_full_name, rc);
+  }
+#if 0
+  if (bytes_read != first_file_len || !memcmp(buffer, ascii_data, first_file_len)) {
+    fprintf(stderr, "Expected to read %d bytes with value:\n%s but got %d bytes of value:\n%s", 
+      first_file_len, ascii_data, bytes_read, buffer);
+  }
+#endif
+    
+
+    dfile->bufflen = bytes_read;
+    dfile->is_binary = 0;
+    return DIOERR_NOERROR;
+}
+
+enum DIOERR read_dataset(struct DFILE* dfile)
+{
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  enum DIOERR rc;
+  if (difile->bpamhandle) {
+    rc = read_dataset_internal_bpam(dfile);
+  }
+  else {
+    rc = read_dataset_internal(dfile);
+  }
+  dfile->err = rc;
+  return rc;
+}
+
+static enum DIOERR write_dataset_internal(struct DFILE* dfile)
+{
+  struct DIFILE* difile = (struct DIFILE*) (dfile->internal);
+  char record[DS_MAX_REC_SIZE];
+  int rc;
+
+  errno = 0;
+
+  if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
+    errmsg(dfile->opts, "No buffer and/or buffer length not positive - no action performed.");
+    return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
+  }
+
+  if (difile->dstate == D_READ_BINARY) {
+    rc=fclose(difile->fp);
+    if (rc) {
+      errmsg(dfile->opts, strerror(errno));
+      return DIOERR_FCLOSE_FAILED_ON_WRITE;
+    }
+    difile->dstate = D_CLOSED;
+  }
+
+  if (difile->dstate == D_READWRITE_BINARY) {
+    rc=fclose(difile->fp);
+    if (rc) {
+      errmsg(dfile->opts, strerror(errno));
+      return DIOERR_FCLOSE_FAILED_ON_WRITE;
+    }
+    difile->dstate = D_CLOSED;  
+  }
+
+  if (difile->dstate == D_CLOSED) {
+    difile->fp = opendd(dfile, difile, "wb,type=record");
+    if (!difile->fp) {
+      return DIOERR_OPENDD_FOR_WRITE_FAILED;
+    }
+  }
+  difile->dstate = D_WRITE_BINARY;
+
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  size_t size = 1;
+  size_t buffer_offset = 0;
+
+  int err=0;
+  if (length_prefix) {
+    uint16_t reclen;
+    while (buffer_offset < dfile->bufflen) {
+      reclen = *((uint16_t*)(&dfile->buffer[buffer_offset]));
+      buffer_offset += sizeof(uint16_t);
+      rc = fwrite(&dfile->buffer[buffer_offset], size, reclen, difile->fp);
+      /*
+       * If we didn't write out a full record, something went wrong (e.g. dataset full)
+       */
+      if (rc < reclen) {
+        err = 1;
+        break;
+      }
+      buffer_offset += rc;
+    }
+  } else {
+    while (buffer_offset < dfile->bufflen) {
+      rc = fwrite(&dfile->buffer[buffer_offset], size, dfile->reclen, difile->fp);
+      /*
+       * If we didn't write out a full record, something went wrong (e.g. dataset full)
+       */
+      if (rc < dfile->reclen) {
+        err = 1;
+        break;
+      }
+      buffer_offset += rc;
+    }
+  }
+
+  if (err) {
+    errmsg(dfile->opts, strerror(errno));
+    return DIOERR_FWRITE_FAILED;
+  } else {
+    return DIOERR_NOERROR;
+  }
+}
+
+/**
+ * @brief Writes data from dfile->buffer to a PDS/E member using block-oriented BPAM I/O.
+ * Uses adapted helper functions for block/record creation.
+ */
+static enum DIOERR write_dataset_internal_bpam(struct DFILE* dfile)
+{
+    struct DIFILE* difile = (struct DIFILE*)dfile->internal;
+    int rc_bpam_io; // Return code from BPAM I/O operations like write_block
+    enum DIOERR overall_rc = DIOERR_NOERROR;
+    if ((dfile->bufflen < 0) || (dfile->buffer == NULL)) {
+      errmsg(dfile->opts, "No buffer and/or buffer length not positive - no action performed.");
+      return DIOERR_INVALID_BUFFER_PASSED_TO_WRITE;
+    }
+  close_pds(difile->bpamhandle, dfile->opts);
+  difile->bpamhandle = open_pds_for_write(difile->dataset_name, dfile->opts);
+  if (write_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, dfile->opts, dfile)) {
+    return 8;    
+  }
+
+  return overall_rc;
+}
+
+
+
+enum DIOERR write_dataset(struct DFILE* dfile)
+{
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  enum DIOERR rc;
+  if (difile->bpamhandle) {
+    rc = write_dataset_internal_bpam(dfile);
+  }
+  else {
+    rc = write_dataset_internal(dfile);
+  }
+  dfile->err = rc;
+  return rc;
+}
+
+static enum DIOERR close_dataset_internal(struct DFILE* dfile)
+{
+  int rc = 0;
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+
+  if (difile->bpamhandle) {
+    rc = close_pds(difile->bpamhandle, dfile->opts);
+  } else {
+    rc = fclose(difile->fp);
+  }
+  
+  if (rc) {
+    errmsg(dfile->opts, strerror(errno));
+    return DIOERR_FCLOSE_FAILED_ON_CLOSE;
+  } 
+
+  return DIOERR_NOERROR;
+}
+
+enum DIOERR close_dataset(struct DFILE* dfile)
+{
+  enum DIOERR rc = close_dataset_internal(dfile);
+  dfile->err = rc;
+  return rc;
+}
+
+
+const char* member_name(struct DFILE* dfile, char* member_copy)
+{
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+
+  if (has_member(dfile)) {
+    size_t len = strlen(difile->member_name);
+    memcpy(member_copy, difile->member_name, len);
+    member_copy[len] = '\0';
+    if (__isASCII()) {
+      __e2a_l(member_copy, len);
+    }
+    return member_copy;
+  }
+  return NULL;
+}
+
+const char* high_level_qualifier(struct DFILE* dfile, char* hlq_copy) {
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  strcpy(hlq_copy, difile->hlq);
+  if (__isASCII()) {
+    __e2a_s(hlq_copy);
+  }
+  return hlq_copy;
+}
+
+/*
+ * Note mid_level_qualifiers can be nothing
+ */
+const char* mid_level_qualifiers(struct DFILE* dfile, char* mlqs_copy) {
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  strcpy(mlqs_copy, difile->mlqs);
+  if (__isASCII()) {
+    __e2a_s(mlqs_copy);
+  }
+  return mlqs_copy;
+}
+
+const char* low_level_qualifier(struct DFILE* dfile, char* llq_copy)
+{
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+  strcpy(llq_copy, difile->llq);
+  if (__isASCII()) {
+    __e2a_s(llq_copy);
+  }
+  return llq_copy;
+}
+
+const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
+  struct DIFILE* difile = (struct DIFILE*) dfile->internal;
+
+  if (has_member(dfile)) {
+    if (has_mlqs(difile)) {
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
+    } else {
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, difile->unix_extension);
+    }
+  } else {
+    if (has_mlqs(difile)) {
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, difile->unix_extension);
+    } else {
+      sprintf(unixfile, "%s.%s", difile->hlq, difile->unix_extension);
+    }
+  }
+
+  if (__isASCII()) {
+    __e2a_s(unixfile);
+  }
+
+  return unixfile;
+}
+
+int is_binary(const char *str, int length) {
+  for (int i = 0; i < length; i++) {
+    char c = str[i];
+
+    // NUL byte (0x00) and Newline (0x15)
+    if (c == 0x00 || c == 0x15) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+int write_dataset_to_temp_file(struct DFILE *dfile, char *tempname,
+                               int force_binary) {
+  int perms = dfile->readonly ? 0400 : 0600;
+
+  // Create temporary file with dataset contents
+  int temp_fd;
+  if (__isASCII()) {
+    tempname = strdup(tempname);
+    __a2e_s(tempname);
+  }
+  if ((temp_fd = open(tempname, O_WRONLY | O_CREAT | O_TRUNC, perms)) == -1) {
+    close_dataset(dfile);
+    close(temp_fd);
+    return 1;
+  }
+  struct f_cnvrt req = {SETCVTOFF, 0, 0};
+  fcntl(temp_fd, F_CONTROL_CVT, &req);
+
+  int space_char = get_space_char(dfile->ccsid);
+  int length_prefix = has_length_prefix(dfile->recfm);
+  int i = 0;
+  char *data = dfile->buffer;
+  if (length_prefix) {
+    uint16_t reclen;
+    while (i < dfile->bufflen) {
+      if (i + sizeof(reclen) > dfile->bufflen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: header truncated
+      }
+      memcpy(&reclen, &data[i], sizeof(reclen));
+      i += sizeof(reclen);
+      int actual_len = reclen;
+      if (i + actual_len > dfile->bufflen) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1; // Corrupt buffer: record truncated
+      }
+      if (!force_binary && space_char != -1) {
+        while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
+          actual_len--;
+        }
+      }
+      if (write(temp_fd, &data[i], actual_len) != actual_len) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1;
+      }
+      if (!force_binary)
+        if (write(temp_fd, "\n", 1) != 1) {
+          close_dataset(dfile);
+          close(temp_fd);
+          return 1;
+        }
+      i += reclen;
+    }
+  } else {
+    while (i < dfile->bufflen) {
+      int actual_len = dfile->reclen;
+      if (i + actual_len > dfile->bufflen) {
+        actual_len = dfile->bufflen - i; // Clamp to remaining buffer
+      }
+      if (!force_binary && space_char != -1) {
+        while (actual_len > 0 && data[i + actual_len - 1] == space_char) {
+          actual_len--;
+        }
+      }
+      if (write(temp_fd, &data[i], actual_len) != actual_len) {
+        close_dataset(dfile);
+        close(temp_fd);
+        return 1;
+      }
+      if (!force_binary)
+        if (write(temp_fd, "\n", 1) != 1) {
+          free(dfile->buffer);
+          close_dataset(dfile);
+          close(temp_fd);
+          return 1;
+        }
+      i = i + dfile->reclen;
+    }
+  }
+
+  // Set the ccsid
+  attrib_t attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.att_filetagchg = 1;
+  attr.att_filetag.ft_ccsid = dfile->ccsid == 0 ? 1047 : dfile->ccsid;
+  attr.att_filetag.ft_txtflag = dfile->txtflag;
+  __fchattr(temp_fd, &attr, sizeof(attr));
+  close(temp_fd);
+  return 0;
+}
+
+char *read_temp_file_to_buffer(char *tempname, struct DFILE *dfile) {
+  // Read temporary file into record buffer
+  if (__isASCII()) {
+    tempname = strdup(tempname);
+    __a2e_s(tempname);
+  }
+  FILE *fp;
+  if ((fp = fopen(tempname, "r")) == NULL) {
+    errmsg(dfile->opts, "Cannot open temporary file: %s", tempname);
+    return NULL;
+  }
+
+  if (!fp) {
+    errmsg(dfile->opts, "Error: Invalid file pointer");
+    return NULL;
+  }
+
+  // Count lines to estimate buffer size
+  int lines = 1;  // always start with one line
+  char *line = malloc(DS_MAX_REC_SIZE);
+
+  int prevMode = __ae_thread_swapmode(__AE_EBCDIC_MODE);
+  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
+    lines++;
+  }
+  __ae_thread_swapmode(prevMode);
+
+  int buffer_size = lines * dfile->reclen * 2;
+  rewind(fp);
+
+  char *buffer = malloc(buffer_size);
+  if (!buffer) {
+    errmsg(dfile->opts, "Error: Failed to allocate memory for buffer");
+    fclose(fp);
+    return NULL;
+  }
+
+  if (!line) {
+    errmsg(dfile->opts, "Error: Failed to allocate memory for line buffer");
+    free(buffer);
+    fclose(fp);
+    return NULL;
+  }
+
+  int tot_size = 0;
+  uint16_t record_length = 0;
+  int line_num = 0;
+  int length_prefix = has_length_prefix(dfile->recfm);
+
+  prevMode =
+      __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  // Read the file line by line and populate the buffer
+  while (fgets(line, DS_MAX_REC_SIZE, fp)) {
+    __ae_thread_swapmode(prevMode);
+    line_num++;
+    record_length = strlen(line) - 1; // Ignore newline character
+
+    if (record_length > dfile->reclen) {
+      errmsg(dfile->opts, "Error: Line %d exceeds record length of %d", line_num,
+             dfile->reclen);
+      free(line);
+      free(buffer);
+      fclose(fp);
+      return NULL;
+    }
+
+    // Add the length prefix if needed
+    if (length_prefix) {
+      if ((tot_size + sizeof(uint16_t) + record_length) > buffer_size) {
+        errmsg(dfile->opts, "Error: Exceeded buffer size at line %d", line_num);
+        free(line);
+        free(buffer);
+        fclose(fp);
+        return NULL;
+      }
+      memcpy(&buffer[tot_size], &record_length, sizeof(uint16_t));
+      tot_size += sizeof(uint16_t);
+      memcpy(&buffer[tot_size], line, record_length);
+      tot_size += record_length;
+    } else {
+      if ((tot_size + dfile->reclen) > buffer_size) {
+        errmsg(dfile->opts, "Error: Exceeded buffer size at line %d", line_num);
+        free(line);
+        free(buffer);
+        fclose(fp);
+        return NULL;
+      }
+      memcpy(&buffer[tot_size], line, record_length);
+      memset(&buffer[tot_size + record_length], ' ',
+             dfile->reclen -
+                 record_length); // Fill remaining space with padding
+      tot_size += dfile->reclen;
+    }
+    prevMode =
+        __ae_thread_swapmode(__AE_EBCDIC_MODE); // Otherwise it gets garbled
+  }
+  __ae_thread_swapmode(prevMode); // Otherwise it gets garbled
+
+  free(line);
+  dfile->buffer = buffer;
+  dfile->bufflen = tot_size;
+  fclose(fp);
+  return buffer;
+}

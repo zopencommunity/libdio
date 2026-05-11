@@ -2,6 +2,7 @@
   #define __DIOINT__ 1
 
   #include <dio.h>
+  #include <memdir.h>
 
   enum DSTATE {
     D_CLOSED=1,
@@ -46,11 +47,12 @@
     char ddname[DD_MAX+1];
     char unix_extension[EXTENSION_MAX+1];
     FILE* fp;
+    FM_BPAMHandle* bpamhandle;
+    struct mstat* memstat;
     enum DSTATE dstate;
     size_t read_buffer_size;
     size_t cur_read_offset;
   };
 
-  void errmsg(struct DFILE* dfile, const char* format, ...);
   int initialize_configuration(char* in_dsname, char* in_llq, char* out_extension, int* out_txtflag, int* out_ccsid);
 #endif

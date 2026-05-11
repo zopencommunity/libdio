@@ -1,4 +1,5 @@
 #include "dio.h"
+#include "dio_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -81,7 +82,7 @@ int main(int argc, char* argv[]) {
   printf("Dataset attributes for dataset %s: dsorg:%s recfm:%s lrecl:%d ccsid:%s\n",
     relds, dsorgs(dfile->dsorg, dsorgbuff), recfms(dfile->recfm, recfmbuff), dfile->reclen, dccsids(dfile->dccsid, ccsidbuff));
 
-  int length_prefix = has_length_prefix(dfile->recfm);
+  int length_prefix = 0; has_length_prefix(dfile->recfm);
 
   dfile->bufflen = calc_size(data, length_prefix, dfile->reclen);
   dfile->buffer = malloc(dfile->bufflen);

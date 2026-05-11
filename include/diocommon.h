@@ -1,0 +1,9 @@
+#ifndef __DIO_COMMON_H
+  #define __DIO_COMMON_H
+
+  #ifdef VSCODE
+    #define PTR32
+  #else
+    #define PTR32 __ptr32
+  #endif
+#endif
