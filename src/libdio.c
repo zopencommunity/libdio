@@ -432,13 +432,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   }
   dfile->msgbufflen = DIO_MSG_BUFF_LEN;
   dfile->logstream = logstream;
-  dfile->opts = calloc(1, sizeof(DBG_Opts));
-
-  struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
-  if (!difile) {
-    dfile->err = DIOERR_MALLOC_FAILED;
-    return dfile;
-  }
 
   // Check if LIBDIO_DEBUG environment variable is set
   if (!dfile->debug) {
@@ -446,6 +439,15 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     if (debug_env && strcmp(debug_env, "1") == 0) {
       dfile->debug = 1;
     }
+  }
+
+  dfile->opts = calloc(1, sizeof(DBG_Opts));
+  init_opts(dfile->opts, dfile);
+
+  struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
+  if (!difile) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
   }
 
   dfile->internal = difile;
@@ -465,7 +467,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
   struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
 
-  init_opts(dfile->opts, dfile);
   rc = init_dsnam_text_unit(difile->dataset_name, &dsn, dfile->opts);
   if (rc) {
     dfile->err = rc;
@@ -682,13 +683,16 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
 
   if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
     difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
+    dfile->buffer = calloc(1, difile->read_buffer_size);
     if (!dfile->buffer) {
       errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
       return DIOERR_READ_BUFFER_ALLOC_FAILED;
     }
+  } else {
+    memset(dfile->buffer, 0, difile->read_buffer_size);
   }
   difile->cur_read_offset = 0;
+  dfile->bufflen = 0; // Initialize to 0 in case file is empty/new
 
   int length_prefix = has_length_prefix(dfile->recfm);
 
@@ -874,25 +878,22 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 
   if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
     difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
+    dfile->buffer = calloc(1, difile->read_buffer_size);
     if (!dfile->buffer) {
       errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
       return DIOERR_READ_BUFFER_ALLOC_FAILED;
     }
+  } else {
+    memset(dfile->buffer, 0, difile->read_buffer_size);
   }
 
+   dfile->bufflen = 0;
    ssize_t bytes_read;  
   if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts, dfile)) < 0 ) {
-    info(dfile->opts, "Unable to read back dataset %s. rc:%d", difile->dataset_full_name, rc);
+    info(dfile->opts, "Unable to read back dataset %s. rc:%zd", difile->dataset_full_name, bytes_read);
+    return DIOERR_READ_FAILED;
   }
-#if 0
-  if (bytes_read != first_file_len || !memcmp(buffer, ascii_data, first_file_len)) {
-    fprintf(stderr, "Expected to read %d bytes with value:\n%s but got %d bytes of value:\n%s", 
-      first_file_len, ascii_data, bytes_read, buffer);
-  }
-#endif
     
-
     dfile->bufflen = bytes_read;
     dfile->is_binary = 0;
     return DIOERR_NOERROR;
@@ -1111,15 +1112,15 @@ const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
 
   if (has_member(dfile)) {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->llq, difile->member_name, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->llq, difile->member_name, difile->unix_extension);
     }
   } else {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->llq, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s", difile->hlq, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->llq, difile->unix_extension);
     }
   }
 
