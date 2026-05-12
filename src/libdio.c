@@ -432,14 +432,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   }
   dfile->msgbufflen = DIO_MSG_BUFF_LEN;
   dfile->logstream = logstream;
-  dfile->opts = calloc(1, sizeof(DBG_Opts));
-  init_opts(dfile->opts, dfile);
-
-  struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
-  if (!difile) {
-    dfile->err = DIOERR_MALLOC_FAILED;
-    return dfile;
-  }
 
   // Check if LIBDIO_DEBUG environment variable is set
   if (!dfile->debug) {
@@ -447,6 +439,15 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     if (debug_env && strcmp(debug_env, "1") == 0) {
       dfile->debug = 1;
     }
+  }
+
+  dfile->opts = calloc(1, sizeof(DBG_Opts));
+  init_opts(dfile->opts, dfile);
+
+  struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
+  if (!difile) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
   }
 
   dfile->internal = difile;
@@ -887,20 +888,12 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
   }
 
    dfile->bufflen = 0;
-   dfile->txtflag = 1; // Default to text
-   dfile->ccsid = 1047; // Default to EBCDIC
    ssize_t bytes_read;  
   if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts, dfile)) < 0 ) {
     info(dfile->opts, "Unable to read back dataset %s. rc:%zd", difile->dataset_full_name, bytes_read);
+    return DIOERR_READ_FAILED;
   }
-#if 0
-  if (bytes_read != first_file_len || !memcmp(buffer, ascii_data, first_file_len)) {
-    fprintf(stderr, "Expected to read %d bytes with value:\n%s but got %d bytes of value:\n%s", 
-      first_file_len, ascii_data, bytes_read, buffer);
-  }
-#endif
     
-
     dfile->bufflen = bytes_read;
     dfile->is_binary = 0;
     return DIOERR_NOERROR;
