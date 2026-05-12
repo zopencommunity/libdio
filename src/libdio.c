@@ -1112,15 +1112,15 @@ const char* map_to_unixfile(struct DFILE* dfile, char* unixfile) {
 
   if (has_member(dfile)) {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->llq, difile->member_name, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->member_name, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->llq, difile->member_name, difile->unix_extension);
     }
   } else {
     if (has_mlqs(difile)) {
-      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->mlqs, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s.%s", difile->hlq, difile->mlqs, difile->llq, difile->unix_extension);
     } else {
-      sprintf(unixfile, "%s.%s", difile->hlq, difile->unix_extension);
+      sprintf(unixfile, "%s.%s.%s", difile->hlq, difile->llq, difile->unix_extension);
     }
   }
 
