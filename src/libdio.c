@@ -433,6 +433,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   dfile->msgbufflen = DIO_MSG_BUFF_LEN;
   dfile->logstream = logstream;
   dfile->opts = calloc(1, sizeof(DBG_Opts));
+  init_opts(dfile->opts, dfile);
 
   struct DIFILE* difile = calloc(1, sizeof(struct DIFILE));
   if (!difile) {
@@ -465,7 +466,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   struct s99_common_text_unit dd = { DALRTDDN, 1, sizeof(DD_SYSTEM)-1, DD_SYSTEM };
   struct s99_common_text_unit stats = { DALSTATS, 1, 1, { DALSTATS_SHR } };
 
-  init_opts(dfile->opts, dfile);
   rc = init_dsnam_text_unit(difile->dataset_name, &dsn, dfile->opts);
   if (rc) {
     dfile->err = rc;
@@ -682,13 +682,16 @@ static enum DIOERR read_dataset_internal(struct DFILE* dfile)
 
   if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
     difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
+    dfile->buffer = calloc(1, difile->read_buffer_size);
     if (!dfile->buffer) {
       errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
       return DIOERR_READ_BUFFER_ALLOC_FAILED;
     }
+  } else {
+    memset(dfile->buffer, 0, difile->read_buffer_size);
   }
   difile->cur_read_offset = 0;
+  dfile->bufflen = 0; // Initialize to 0 in case file is empty/new
 
   int length_prefix = has_length_prefix(dfile->recfm);
 
@@ -874,16 +877,21 @@ static enum DIOERR read_dataset_internal_bpam(struct DFILE* dfile)
 
   if ((difile->read_buffer_size == 0) || (dfile->buffer == NULL)) {
     difile->read_buffer_size = INIT_READ_BUFFER_SIZE;
-    dfile->buffer = malloc(difile->read_buffer_size);
+    dfile->buffer = calloc(1, difile->read_buffer_size);
     if (!dfile->buffer) {
       errmsg(dfile->opts, "Unable to acquire storage to read dataset %s.", difile->dataset_name);
       return DIOERR_READ_BUFFER_ALLOC_FAILED;
     }
+  } else {
+    memset(dfile->buffer, 0, difile->read_buffer_size);
   }
 
+   dfile->bufflen = 0;
+   dfile->txtflag = 1; // Default to text
+   dfile->ccsid = 1047; // Default to EBCDIC
    ssize_t bytes_read;  
   if ((bytes_read = read_member(difile->bpamhandle, difile->dataset_name, difile->member_name, dfile->buffer, INIT_READ_BUFFER_SIZE, dfile->opts, dfile)) < 0 ) {
-    info(dfile->opts, "Unable to read back dataset %s. rc:%d", difile->dataset_full_name, rc);
+    info(dfile->opts, "Unable to read back dataset %s. rc:%zd", difile->dataset_full_name, bytes_read);
   }
 #if 0
   if (bytes_read != first_file_len || !memcmp(buffer, ascii_data, first_file_len)) {
