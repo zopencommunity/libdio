@@ -441,6 +441,15 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     }
   }
 
+  // Check if locks should be bypassed
+  const char* bypass_locks_env = getenv("LIBDIO_BYPASS_LOCKS");
+  if (!bypass_locks_env) {
+    bypass_locks_env = getenv("LIBDIO_DISABLE_LOCKS"); // Fallback
+  }
+  if (bypass_locks_env && strcmp(bypass_locks_env, "1") == 0) {
+    dfile->bypass_locks = 1;
+  }
+
   dfile->opts = calloc(1, sizeof(DBG_Opts));
   init_opts(dfile->opts, dfile);
 
@@ -851,9 +860,11 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
     return 8;
   }
 
-  if (enq_dataset_member(ds, mem_name, opts)) {
-    errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
-    return 8;
+  if (!dfile->bypass_locks) {
+    if (enq_dataset_member(ds, mem_name, opts)) {
+      errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+      return 8;
+    }
   }
   if (dfile->debug) {
     fprintf(stdout, "MSTAT information for %s(%s) at time of creation.\n");
@@ -863,9 +874,11 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
     errmsg(opts, "Unable to write directory entry for member %s(%s)\n", ds, mem_name);
     return 8;
   }
-  if (deq_dataset_member(ds, mem_name, opts)) {
-    errmsg(opts, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
-    return 8;
+  if (!dfile->bypass_locks) {
+    if (deq_dataset_member(ds, mem_name, opts)) {
+      errmsg(opts, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+      return 8;
+    }
   }
   return 0;
 }
