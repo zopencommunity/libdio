@@ -644,6 +644,13 @@ static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logst
   return dfile;
 }
 
+static void convert_msgbuff_to_ascii(struct DFILE* dfile)
+{
+  if (dfile && dfile->err && dfile->msgbuff) {
+    __e2a_l(dfile->msgbuff, strlen(dfile->msgbuff));
+  }
+}
+
 struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 {
   extern int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc);
@@ -653,6 +660,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   struct DFILE* dfile = open_dataset_internal(dataset_name, logstream);
   if (dfile) {
     dfile->is_ascii = is_ascii_caller;
+    convert_msgbuff_to_ascii(dfile);
   }
   return dfile;
 }
@@ -936,6 +944,7 @@ enum DIOERR read_dataset(struct DFILE* dfile)
     rc = read_dataset_internal(dfile);
   }
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1056,6 +1065,7 @@ enum DIOERR write_dataset(struct DFILE* dfile)
     rc = write_dataset_internal(dfile);
   }
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1082,6 +1092,7 @@ enum DIOERR close_dataset(struct DFILE* dfile)
 {
   enum DIOERR rc = close_dataset_internal(dfile);
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
