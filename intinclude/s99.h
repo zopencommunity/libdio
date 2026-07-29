@@ -225,7 +225,7 @@
   struct s99rb* __ptr32 s99_init(enum s99_verb verb, struct s99_flag1 flag1, struct s99_flag2 flag2, struct s99_rbx* rbxin, size_t num_text_units, ...);
   void s99_free(struct s99rb* __ptr32 parms);
   
-  int s99_prt_msg(struct DFILE* dfile, FILE* stream, struct s99rb* __ptr32 svc99parms, int svc99rc);
+  int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc);
   void s99_fmt_dmp(FILE* stream, struct s99rb* __ptr32 parms);
   void dumpstg(FILE* stream, void* p, size_t len);
 

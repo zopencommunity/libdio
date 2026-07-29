@@ -197,7 +197,7 @@ static void s99_em_fmt_dmp(FILE* stream, struct s99_em* __ptr32 parms) {
 		funct, *funct, parms->emidnum, parms->emnmsgbk, parms->ems99rbp, parms->emretcod, parms->emcpplp, parms->embufp, parms->emwtpcdp);
 }
 
-int s99_prt_msg(struct DFILE* dfile, FILE* stream, struct s99rb* __ptr32 svc99parms, int svc99rc) 
+int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc) 
 {
 	struct s99_em* __ptr32 msgparms; 
 	int rc;
@@ -215,28 +215,28 @@ int s99_prt_msg(struct DFILE* dfile, FILE* stream, struct s99rb* __ptr32 svc99pa
 	msgparms->emwtpcdp = &msgparms->emwtdert;
 	msgparms->embufp = &msgparms->embuf;
 
-	logmsg(stream, "SVC99 parms:%p rc:0x%x\n", svc99parms, svc99rc);
-	logmsg(stream, "SVC99 failed with error:%d (0x%x) info: %d (0x%x)\n", 
+	logmsg(stderr, "SVC99 parms:%p rc:0x%x\n", svc99parms, svc99rc);
+	logmsg(stderr, "SVC99 failed with error:%d (0x%x) info: %d (0x%x)\n", 
 		svc99parms->s99error, svc99parms->s99error, svc99parms->s99info, svc99parms->s99info);
 	rc = S99MSG(msgparms);
 	if (rc) {
-		logmsg(stream, "SVC99MSG rc:0x%x\n", rc);
-		logmsg(stream, "IEFDB476 failed with rc:0x%x\n", rc);
-		s99_em_fmt_dmp(stream, msgparms);
+		logmsg(stderr, "SVC99MSG rc:0x%x\n", rc);
+		logmsg(stderr, "IEFDB476 failed with rc:0x%x\n", rc);
+		s99_em_fmt_dmp(stderr, msgparms);
 
     /*
      * If IEFDB476 failed, write out an error message with the codes
      */
-    errmsg(dfile, "SVC99 failed with error:%d (0x%x) info: %d (0x%x).",
+    errmsg(opts, "SVC99 failed with error:%d (0x%x) info: %d (0x%x).",
       svc99parms->s99error, svc99parms->s99error, svc99parms->s99info, svc99parms->s99info);
 	} else {
     /*
      * Write out a one liner of the SVC99 failure into the error message
      */
-    errmsg(dfile, "Error: %.*s.", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
+    errmsg(opts, "Error: %.*s.", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
 
-		logmsg(stream, "%.*s\n", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
-		logmsg(stream, "%.*s\n", msgparms->embuf.embufl2, &msgparms->embuf.embuft2[msgparms->embuf.embufo2]);
+		logmsg(stderr, "%.*s\n", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
+		logmsg(stderr, "%.*s\n", msgparms->embuf.embufl2, &msgparms->embuf.embuft2[msgparms->embuf.embufo2]);
 	}
 
 	free(msgparms);

@@ -107,6 +107,7 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
     size_t msgbufflen;
     int readonly:1; 
     int bypass_locks:1;
+    int is_ascii:1;
     int is_binary;
     FILE* logstream;
     void* internal;

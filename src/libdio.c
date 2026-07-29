@@ -62,6 +62,15 @@ void dbgmsg(struct DFILE* dfile, const char* format, ...)
 }
 
 
+static void convert_msgbuff_to_ascii(struct DFILE* dfile)
+{
+  if (dfile && dfile->err && dfile->is_ascii && dfile->msgbuff) {
+    __e2a_l(dfile->msgbuff, strlen(dfile->msgbuff));
+    write(2, dfile->msgbuff, strlen(dfile->msgbuff));
+    write(2, "\n", 1);
+  }
+}
+
 void strupper(char* str)
 {
   for (int i=0; i<strlen(str); ++i) {
@@ -408,7 +417,7 @@ void init_opts(DBG_Opts* opts, struct DFILE* dfile)
 
 
 
-struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
+static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logstream)
 {
   enum DIOERR rc;
 
@@ -641,6 +650,17 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     dsorgs_internal(dfile->dsorg), recfms_internal(dfile->recfm), dfile->reclen, dstates(difile->dstate), dccsids(dfile->dccsid, ccsidstr));
 #endif // 0
 
+  return dfile;
+}
+
+struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
+{
+  int is_ascii_caller = __isASCII();
+  struct DFILE* dfile = open_dataset_internal(dataset_name, logstream);
+  if (dfile) {
+    dfile->is_ascii = is_ascii_caller;
+    convert_msgbuff_to_ascii(dfile);
+  }
   return dfile;
 }
 
@@ -923,6 +943,7 @@ enum DIOERR read_dataset(struct DFILE* dfile)
     rc = read_dataset_internal(dfile);
   }
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1043,6 +1064,7 @@ enum DIOERR write_dataset(struct DFILE* dfile)
     rc = write_dataset_internal(dfile);
   }
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1069,6 +1091,7 @@ enum DIOERR close_dataset(struct DFILE* dfile)
 {
   enum DIOERR rc = close_dataset_internal(dfile);
   dfile->err = rc;
+  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
