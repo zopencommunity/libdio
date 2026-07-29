@@ -215,14 +215,18 @@ int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc)
 	msgparms->emwtpcdp = &msgparms->emwtdert;
 	msgparms->embufp = &msgparms->embuf;
 
-	logmsg(stderr, "SVC99 parms:%p rc:0x%x\n", svc99parms, svc99rc);
-	logmsg(stderr, "SVC99 failed with error:%d (0x%x) info: %d (0x%x)\n", 
-		svc99parms->s99error, svc99parms->s99error, svc99parms->s99info, svc99parms->s99info);
+	if (opts && opts->debug) {
+		logmsg(stderr, "SVC99 parms:%p rc:0x%x\n", svc99parms, svc99rc);
+		logmsg(stderr, "SVC99 failed with error:%d (0x%x) info: %d (0x%x)\n", 
+			svc99parms->s99error, svc99parms->s99error, svc99parms->s99info, svc99parms->s99info);
+	}
 	rc = S99MSG(msgparms);
 	if (rc) {
-		logmsg(stderr, "SVC99MSG rc:0x%x\n", rc);
-		logmsg(stderr, "IEFDB476 failed with rc:0x%x\n", rc);
-		s99_em_fmt_dmp(stderr, msgparms);
+		if (opts && opts->debug) {
+			logmsg(stderr, "SVC99MSG rc:0x%x\n", rc);
+			logmsg(stderr, "IEFDB476 failed with rc:0x%x\n", rc);
+			s99_em_fmt_dmp(stderr, msgparms);
+		}
 
     /*
      * If IEFDB476 failed, write out an error message with the codes
@@ -235,8 +239,10 @@ int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc)
      */
     errmsg(opts, "Error: %.*s.", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
 
-		logmsg(stderr, "%.*s\n", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
-		logmsg(stderr, "%.*s\n", msgparms->embuf.embufl2, &msgparms->embuf.embuft2[msgparms->embuf.embufo2]);
+		if (opts && opts->debug) {
+			logmsg(stderr, "%.*s\n", msgparms->embuf.embufl1, &msgparms->embuf.embuft1[msgparms->embuf.embufo1]);
+			logmsg(stderr, "%.*s\n", msgparms->embuf.embufl2, &msgparms->embuf.embuft2[msgparms->embuf.embufo2]);
+		}
 	}
 
 	free(msgparms);
