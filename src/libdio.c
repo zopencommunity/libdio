@@ -64,7 +64,7 @@ void dbgmsg(struct DFILE* dfile, const char* format, ...)
 
 static void convert_msgbuff_to_ascii(struct DFILE* dfile)
 {
-  if (dfile && dfile->err && dfile->is_ascii && dfile->msgbuff) {
+  if (dfile && dfile->err && dfile->msgbuff) {
     __e2a_l(dfile->msgbuff, strlen(dfile->msgbuff));
     write(2, dfile->msgbuff, strlen(dfile->msgbuff));
     write(2, "\n", 1);
@@ -411,7 +411,7 @@ void init_opts(DBG_Opts* opts, struct DFILE* dfile)
   opts->error_buffer = (DBG_MsgBuffer*)malloc(sizeof(DBG_MsgBuffer));
   opts->error_buffer->buffer = dfile->msgbuff;  // ✅
   opts->error_buffer->size = dfile->msgbufflen;
-  opts->info_buffer = 0;
+  opts->info_buffer = opts->error_buffer;
   opts->verbose = 0;
 }
 
