@@ -38,18 +38,18 @@ static void logmsg(FILE* stream, const char* format, ...)
   va_end(arg_ptr);
 }
 
-void dumpstg(FILE* stream, void* p, size_t len)
+void dumpstg(DBG_Opts* opts, void* p, size_t len)
 {
   char* buff = p;
   size_t i;
   for (i=0; i<len; ++i) {
     if ((i != 0) && (i % 16 == 0)) {
-      logmsg(stream, "\n");
+      errmsg(opts, "\n");
     }
     if (i % 4 == 0) {
-      logmsg(stream, " ");
+      errmsg(opts, " ");
     }
-    logmsg(stream, "%2.2X", buff[i]);
+    errmsg(opts, "%2.2X", buff[i]);
   }
 }
 
@@ -86,7 +86,7 @@ static struct s99_text_unit* __ptr32 calloc_text_unit(struct s99_text_unit* inun
 	return outunit;
 }
 
-void s99_fmt_dmp(FILE* stream, struct s99rb* __ptr32 parms) 
+void s99_fmt_dmp(DBG_Opts* opts, struct s99rb* __ptr32 parms) 
 {
 	size_t tunitsize;
 	unsigned int* __ptr32 p;
@@ -101,31 +101,31 @@ void s99_fmt_dmp(FILE* stream, struct s99rb* __ptr32 parms)
 	unsigned short* s99info = (unsigned short*)&parms->s99info;
 	unsigned int* s99flag2 = (unsigned int*)&parms->s99flag2;
 
-	logmsg(stream, "SVC99 Formatted Dump\n");
-	logmsg(stream, "  RBLN:%d VERB:%d FLAG1:%4.4X ERROR:%4.4X INFO:%4.4X FLAG2:%8.8X\n", 
+	errmsg(opts, "SVC99 Formatted Dump\n");
+	errmsg(opts, "  RBLN:%d VERB:%d FLAG1:%4.4X ERROR:%4.4X INFO:%4.4X FLAG2:%8.8X\n", 
 		parms->s99rbln, *s99verb, *s99flag1, *s99error, *s99info, *s99flag2);
 
-	logmsg(stream, "SVC99 RB\n");
-  dumpstg(stream, parms, sizeof(struct s99rb));
+	errmsg(opts, "SVC99 RB\n");
+  dumpstg(opts, parms, sizeof(struct s99rb));
 
 
 	if (rbx) {
 		char* s99eopts = (char*) &rbx->s99eopts;
 		char* s99emgsv = (char*) &rbx->s99emgsv;
-	  logmsg(stream, "\nSVC99 RBX: %8.8X", rbx);
-    dumpstg(stream, rbx, sizeof(struct s99_rbx));
-		logmsg(stream, "\n  EID:%6.6s EVER: %2.2X EOPTS: %2.2X SUBP: %2.2x EKEY: %2.2X EMGSV: %2.2X ECPPL: %8.8X EMSGP: %8.8X ERCO: %2.2x\n", 
+	  errmsg(opts, "\nSVC99 RBX: %8.8X", rbx);
+    dumpstg(opts, rbx, sizeof(struct s99_rbx));
+		errmsg(opts, "\n  EID:%6.6s EVER: %2.2X EOPTS: %2.2X SUBP: %2.2x EKEY: %2.2X EMGSV: %2.2X ECPPL: %8.8X EMSGP: %8.8X ERCO: %2.2x\n", 
 			rbx->s99eid, rbx->s99ever, *s99eopts, rbx->s99esubp, rbx->s99ekey, *s99emgsv, rbx->s99ecppl, rbx->s99emsgp, rbx->s99erco); 
 	} else {
-		logmsg(stream, "\n");
+		errmsg(opts, "\n");
 	}
 	do {
 		pp = (unsigned int* __ptr32) &textunit[i];
 		wtu = (struct s99_text_unit*) textunit[i];
 		tunitsize = text_unit_size(wtu);
-		logmsg(stream, "  textunit[%d] %X %3zu ", i, *pp, tunitsize);
-		dumpstg(stream, textunit[i], tunitsize);
-		logmsg(stream, "\n");
+		errmsg(opts, "  textunit[%d] %X %3zu ", i, *pp, tunitsize);
+		dumpstg(opts, textunit[i], tunitsize);
+		errmsg(opts, "\n");
 		++i;
 	} while (((*pp) & 0x80000000) == 0);
 	return;

@@ -226,8 +226,8 @@
   void s99_free(struct s99rb* __ptr32 parms);
   
   int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc);
-  void s99_fmt_dmp(FILE* stream, struct s99rb* __ptr32 parms);
-  void dumpstg(FILE* stream, void* p, size_t len);
+  void s99_fmt_dmp(DBG_Opts* opts, struct s99rb* __ptr32 parms);
+  void dumpstg(DBG_Opts* opts, void* p, size_t len);
 
   int S99(struct s99rb* __ptr32 parms);
   int S99MSG(struct s99_em* __ptr32 parms);
