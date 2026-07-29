@@ -88,6 +88,11 @@ static struct s99_text_unit* __ptr32 calloc_text_unit(struct s99_text_unit* inun
 
 void s99_fmt_dmp(DBG_Opts* opts, struct s99rb* __ptr32 parms) 
 {
+  char dbg_buf[128];
+  strcpy(dbg_buf, "DBG: s99_fmt_dmp entered\n");
+  __e2a_l(dbg_buf, strlen(dbg_buf));
+  write(2, dbg_buf, strlen(dbg_buf));
+
 	size_t tunitsize;
 	unsigned int* __ptr32 p;
 	unsigned int* __ptr32 pp;
@@ -133,6 +138,11 @@ void s99_fmt_dmp(DBG_Opts* opts, struct s99rb* __ptr32 parms)
 
 struct s99rb* __ptr32 s99_init(enum s99_verb verb, struct s99_flag1 flag1, struct s99_flag2 flag2, struct s99_rbx* rbxin, size_t num_text_units, ...)
 {
+  char dbg_buf[128];
+  strcpy(dbg_buf, "DBG: s99_init entered\n");
+  __e2a_l(dbg_buf, strlen(dbg_buf));
+  write(2, dbg_buf, strlen(dbg_buf));
+
 	va_list arg_ptr;
 	size_t i;
 	struct s99rb* __ptr32 parms;
@@ -199,6 +209,11 @@ static void s99_em_fmt_dmp(FILE* stream, struct s99_em* __ptr32 parms) {
 
 int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc) 
 {
+  char dbg_buf[128];
+  strcpy(dbg_buf, "DBG: s99_prt_msg entered\n");
+  __e2a_l(dbg_buf, strlen(dbg_buf));
+  write(2, dbg_buf, strlen(dbg_buf));
+
 	struct s99_em* __ptr32 msgparms; 
 	int rc;
 

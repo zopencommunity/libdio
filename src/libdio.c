@@ -419,6 +419,11 @@ void init_opts(DBG_Opts* opts, struct DFILE* dfile)
 
 static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logstream)
 {
+  char dbg_buf[128];
+  strcpy(dbg_buf, "DBG: open_dataset_internal entered\n");
+  __e2a_l(dbg_buf, strlen(dbg_buf));
+  write(2, dbg_buf, strlen(dbg_buf));
+
   enum DIOERR rc;
 
   /*
@@ -655,6 +660,11 @@ static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logst
 
 struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 {
+  char dbg_buf[128];
+  strcpy(dbg_buf, "DBG: open_dataset entered\n");
+  __e2a_l(dbg_buf, strlen(dbg_buf));
+  write(2, dbg_buf, strlen(dbg_buf));
+
   extern int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc);
   volatile void* force_linker = (void*)s99_prt_msg;
 
