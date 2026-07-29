@@ -62,15 +62,6 @@ void dbgmsg(struct DFILE* dfile, const char* format, ...)
 }
 
 
-static void convert_msgbuff_to_ascii(struct DFILE* dfile)
-{
-  if (dfile && dfile->err && dfile->msgbuff) {
-    __e2a_l(dfile->msgbuff, strlen(dfile->msgbuff));
-    write(2, dfile->msgbuff, strlen(dfile->msgbuff));
-    write(2, "\n", 1);
-  }
-}
-
 void strupper(char* str)
 {
   for (int i=0; i<strlen(str); ++i) {
@@ -419,11 +410,6 @@ void init_opts(DBG_Opts* opts, struct DFILE* dfile)
 
 static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logstream)
 {
-  char dbg_buf[128];
-  strcpy(dbg_buf, "DBG: open_dataset_internal entered\n");
-  __e2a_l(dbg_buf, strlen(dbg_buf));
-  write(2, dbg_buf, strlen(dbg_buf));
-
   enum DIOERR rc;
 
   /*
@@ -660,11 +646,6 @@ static struct DFILE* open_dataset_internal(const char* dataset_name, FILE* logst
 
 struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 {
-  char dbg_buf[128];
-  strcpy(dbg_buf, "DBG: open_dataset entered\n");
-  __e2a_l(dbg_buf, strlen(dbg_buf));
-  write(2, dbg_buf, strlen(dbg_buf));
-
   extern int s99_prt_msg(DBG_Opts* opts, struct s99rb* __ptr32 svc99parms, int svc99rc);
   volatile void* force_linker = (void*)s99_prt_msg;
 
@@ -672,7 +653,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   struct DFILE* dfile = open_dataset_internal(dataset_name, logstream);
   if (dfile) {
     dfile->is_ascii = is_ascii_caller;
-    convert_msgbuff_to_ascii(dfile);
   }
   return dfile;
 }
@@ -956,7 +936,6 @@ enum DIOERR read_dataset(struct DFILE* dfile)
     rc = read_dataset_internal(dfile);
   }
   dfile->err = rc;
-  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1077,7 +1056,6 @@ enum DIOERR write_dataset(struct DFILE* dfile)
     rc = write_dataset_internal(dfile);
   }
   dfile->err = rc;
-  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
@@ -1104,7 +1082,6 @@ enum DIOERR close_dataset(struct DFILE* dfile)
 {
   enum DIOERR rc = close_dataset_internal(dfile);
   dfile->err = rc;
-  convert_msgbuff_to_ascii(dfile);
   return rc;
 }
 
