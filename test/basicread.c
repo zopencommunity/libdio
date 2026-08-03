@@ -47,6 +47,7 @@ int main(int argc, char* argv[]) {
   dfile = open_dataset(ds, stderr);
   if (!dfile || dfile->err) {
     if (dfile) {
+      dio_errmsg(dfile);
       fprintf(stderr, "%s\n", dfile->msgbuff);
     }
     return 4;
@@ -58,6 +59,7 @@ int main(int argc, char* argv[]) {
 
   rc = read_dataset(dfile);
   if (rc) {
+    dio_errmsg(dfile);
     fprintf(stderr, "%s\n", dfile->msgbuff);
     return 4;
   }
@@ -68,6 +70,7 @@ int main(int argc, char* argv[]) {
 
   rc = close_dataset(dfile);
   if (rc) {
+    dio_errmsg(dfile);
     fprintf(stderr, "%s\n", dfile->msgbuff);
     return 4;
   }

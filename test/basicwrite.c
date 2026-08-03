@@ -73,7 +73,8 @@ int main(int argc, char* argv[]) {
   dfile = open_dataset(ds, stderr);
   if (!dfile || dfile->err) {
     if (dfile) {
-      fprintf(stderr, "Error message: %d %s", dfile->err, dfile->msgbuff);
+      dio_errmsg(dfile);
+      fprintf(stderr, "Error %d: %s\n", dfile->err, dfile->msgbuff);
     } else {
       fprintf(stderr, "NULL pointer returned from open_dataset\n");
     }
@@ -94,7 +95,8 @@ int main(int argc, char* argv[]) {
   copy_data(dfile->buffer, data, length_prefix, dfile->reclen);
   rc = write_dataset(dfile);
   if (rc) {
-    fprintf(stderr, dfile->msgbuff);
+    dio_errmsg(dfile);
+    fprintf(stderr, "%s\n", dfile->msgbuff);
     return rc;
   }
 
@@ -102,7 +104,8 @@ int main(int argc, char* argv[]) {
 
   rc = close_dataset(dfile);
   if (rc) {
-    fprintf(stderr, dfile->msgbuff);
+    dio_errmsg(dfile);
+    fprintf(stderr, "%s\n", dfile->msgbuff);
     return rc;
   }
   return 0;
