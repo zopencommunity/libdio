@@ -26,6 +26,7 @@
 #define DD_SYSTEM "????????"
 #define ERRNO_NONEXISTANT_FILE (67)
 #define DIO_MSG_BUFF_LEN (4095)
+#define DIO_ERROR_BUFF_SIZE (8192)  // Size for combined msgbuff (errbuff + infobuff)
 
 const struct s99_rbx s99rbxtemplate = {"S99RBX",S99RBXVR,{0,1,0,0,0,0,0},0,0,0};
 
@@ -307,6 +308,84 @@ static enum DIOERR init_dataset_info(struct DFILE* dfile, const char* dataset_na
   return DIOERR_NOERROR;
 }
 
+const char* dio_errmsg(struct DFILE* dfile)
+{
+  if (!dfile || !dfile->msgbuff || dfile->msgbufflen == 0) {
+    return "";
+  }
+  
+  char* buffer = dfile->msgbuff;
+  size_t buffer_size = dfile->msgbufflen;
+
+  buffer[0] = '\0';  // Start with empty string
+  size_t remaining = buffer_size - 1;  // Reserve 1 for null terminator
+  size_t offset = 0;
+
+  // Check for system message (infobuff)
+  if (dfile->infobuff && dfile->infobuff[0] != '\0') {
+    size_t infolen = strlen(dfile->infobuff);
+    if (infolen < remaining) {
+      memcpy(buffer + offset, dfile->infobuff, infolen);
+      offset += infolen;
+      remaining -= infolen;
+      
+      // Add newline if not already present
+      if (offset > 0 && buffer[offset-1] != '\n' && remaining > 1) {
+        buffer[offset++] = '\n';
+        remaining--;
+      }
+    }
+  }
+
+  // Check for application error (errbuff)
+  if (dfile->errbuff && dfile->errbuff[0] != '\0') {
+    size_t errlen = strlen(dfile->errbuff);
+    
+    // If we already have content, add a separator
+    if (offset > 0 && remaining > 8) {
+      const char* prefix = "Error: ";
+      size_t prefixlen = strlen(prefix);
+      if (prefixlen < remaining) {
+        memcpy(buffer + offset, prefix, prefixlen);
+        offset += prefixlen;
+        remaining -= prefixlen;
+      }
+    }
+    
+    if (errlen < remaining) {
+      memcpy(buffer + offset, dfile->errbuff, errlen);
+      offset += errlen;
+      remaining -= errlen;
+    }
+  }
+
+  // If neither buffer had content, use error code
+  if (offset == 0 && dfile->err != 0) {
+    snprintf(buffer, buffer_size, "Error code: %d", dfile->err);
+    offset = strlen(buffer);
+  }
+
+  buffer[offset] = '\0';  // Null terminate
+  
+  return buffer;
+}
+
+static void dio_clear_error_buffers(struct DFILE* dfile)
+{
+  if (dfile) {
+    if (dfile->errbuff) {
+      dfile->errbuff[0] = '\0';
+    }
+    if (dfile->infobuff) {
+      dfile->infobuff[0] = '\0';
+    }
+    if (dfile->msgbuff) {
+      dfile->msgbuff[0] = '\0';
+    }
+    dfile->err = DIOERR_NOERROR;
+  }
+}
+
 static const char* dsorgs_internal(enum DSORG dsorg)
 {
   switch(dsorg) {
@@ -399,11 +478,18 @@ static FILE* opendd(struct DFILE* dfile, struct DIFILE* difile, const char* open
 void init_opts(DBG_Opts* opts, struct DFILE* dfile)
 {
   opts->debug = dfile->debug;
+  
+  // Set up error_buffer to point to errbuff for error messages
   opts->error_buffer = (DBG_MsgBuffer*)malloc(sizeof(DBG_MsgBuffer));
-  opts->error_buffer->buffer = dfile->msgbuff;  // ✅
-  opts->error_buffer->size = dfile->msgbufflen;
-  opts->info_buffer = 0;
-  opts->verbose = 0;
+  opts->error_buffer->buffer = dfile->errbuff;
+  opts->error_buffer->size = dfile->errbufflen;
+  
+  // Set up info_buffer to point to infobuff for SVC99 error messages
+  opts->info_buffer = (DBG_MsgBuffer*)malloc(sizeof(DBG_MsgBuffer));
+  opts->info_buffer->buffer = dfile->infobuff;
+  opts->info_buffer->size = dfile->infobufflen;
+  
+  opts->verbose = 1;  // Enable verbose to capture SVC99 error messages
 }
 
 
@@ -425,12 +511,27 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   if (!dfile) {
     return NULL;
   }
-  dfile->msgbuff = calloc(1, DIO_MSG_BUFF_LEN+1);
+  dfile->msgbuff = calloc(1, DIO_ERROR_BUFF_SIZE);
   if (!dfile->msgbuff) {
     dfile->err = DIOERR_MALLOC_FAILED;
     return dfile;
   }
-  dfile->msgbufflen = DIO_MSG_BUFF_LEN;
+  dfile->msgbufflen = DIO_ERROR_BUFF_SIZE;
+  
+  dfile->errbuff = calloc(1, DIO_MSG_BUFF_LEN+1);
+  if (!dfile->errbuff) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
+  }
+  dfile->errbufflen = DIO_MSG_BUFF_LEN;
+  
+  dfile->infobuff = calloc(1, DIO_MSG_BUFF_LEN+1);
+  if (!dfile->infobuff) {
+    dfile->err = DIOERR_MALLOC_FAILED;
+    return dfile;
+  }
+  dfile->infobufflen = DIO_MSG_BUFF_LEN;
+  
   dfile->logstream = logstream;
 
   // Check if LIBDIO_DEBUG environment variable is set
@@ -439,6 +540,15 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     if (debug_env && strcmp(debug_env, "1") == 0) {
       dfile->debug = 1;
     }
+  }
+
+  // Check if locks should be bypassed
+  const char* bypass_locks_env = getenv("LIBDIO_BYPASS_LOCKS");
+  if (!bypass_locks_env) {
+    bypass_locks_env = getenv("LIBDIO_DISABLE_LOCKS"); // Fallback
+  }
+  if (bypass_locks_env && strcmp(bypass_locks_env, "1") == 0) {
+    dfile->bypass_locks = 1;
   }
 
   dfile->opts = calloc(1, sizeof(DBG_Opts));
@@ -470,7 +580,6 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
   rc = init_dsnam_text_unit(difile->dataset_name, &dsn, dfile->opts);
   if (rc) {
     dfile->err = rc;
-  
     return dfile;
   }
   rc = dsdd_alloc(&dsn, &dd, &stats, dfile->opts);
@@ -588,7 +697,7 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
     fldata_t info;
     rc = __fldata(difile->fp, NULL, &info);
     if (rc) {
-      errmsg(dfile->opts, "Unable to obtain file information for %s.", dataset_name_copy);
+      errmsg(dfile->opts, "Unable to obtain file information for %s. __fldata rc=%d", dataset_name_copy, rc);
       close_dataset(dfile);
       dfile->err = DIOERR_FLDATA_FAILED;
       return dfile;
@@ -851,9 +960,11 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
     return 8;
   }
 
-  if (enq_dataset_member(ds, mem_name, opts)) {
-    errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
-    return 8;
+  if (!dfile->bypass_locks) {
+    if (enq_dataset_member(ds, mem_name, opts)) {
+      errmsg(opts,"Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+      return 8;
+    }
   }
   if (dfile->debug) {
     fprintf(stdout, "MSTAT information for %s(%s) at time of creation.\n");
@@ -863,9 +974,11 @@ static int write_member(FM_BPAMHandle* bh, const char* ds, const char* mem_name,
     errmsg(opts, "Unable to write directory entry for member %s(%s)\n", ds, mem_name);
     return 8;
   }
-  if (deq_dataset_member(ds, mem_name, opts)) {
-    errmsg(opts, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
-    return 8;
+  if (!dfile->bypass_locks) {
+    if (deq_dataset_member(ds, mem_name, opts)) {
+      errmsg(opts, "Unable to obtain ENQ for PDS member %s(%s). Member not written\n", ds, mem_name);
+      return 8;
+    }
   }
   return 0;
 }
@@ -903,6 +1016,9 @@ enum DIOERR read_dataset(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
   enum DIOERR rc;
+
+  // Clear error buffers from previous operations
+  dio_clear_error_buffers(dfile);
   if (difile->bpamhandle) {
     rc = read_dataset_internal_bpam(dfile);
   }
@@ -1023,6 +1139,9 @@ enum DIOERR write_dataset(struct DFILE* dfile)
 {
   struct DIFILE* difile = (struct DIFILE*) dfile->internal;
   enum DIOERR rc;
+
+  // Clear error buffers from previous operations
+  dio_clear_error_buffers(dfile);
   if (difile->bpamhandle) {
     rc = write_dataset_internal_bpam(dfile);
   }
@@ -1056,6 +1175,36 @@ enum DIOERR close_dataset(struct DFILE* dfile)
 {
   enum DIOERR rc = close_dataset_internal(dfile);
   dfile->err = rc;
+  
+  // Clean up allocated memory
+  if (dfile->opts) {
+    if (dfile->opts->info_buffer) {
+      free(dfile->opts->info_buffer);
+    }
+    if (dfile->opts->error_buffer) {
+      free(dfile->opts->error_buffer);
+    }
+    free(dfile->opts);
+  }
+  
+  if (dfile->msgbuff) {
+    free(dfile->msgbuff);
+  }
+  
+  if (dfile->errbuff) {
+    free(dfile->errbuff);
+  }
+  
+  if (dfile->infobuff) {
+    free(dfile->infobuff);
+  }
+  
+  if (dfile->internal) {
+    free(dfile->internal);
+  }
+  
+  free(dfile);
+  
   return rc;
 }
 

@@ -103,9 +103,14 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
     enum DSORG dsorg;
     int dccsid;
     enum DIOERR err;
-    char* msgbuff;
+    char* msgbuff;        // Combined error message (errbuff + infobuff)
     size_t msgbufflen;
+    char* errbuff;        // Buffer for error messages (internal)
+    size_t errbufflen;
+    char* infobuff;       // Buffer for info messages - SVC99 details (internal)
+    size_t infobufflen;
     int readonly:1; 
+    int bypass_locks:1;
     int is_binary;
     FILE* logstream;
     void* internal;
@@ -140,7 +145,7 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
    * services. 
    * Returns 0 if successful, non-zero otherwise
    * Will set errno if an I/O error occurred 
-   * Will update msgbuff with error text for the failure
+   * Will update errbuff with error text for the failure
    * Detailed error messages will be written to logstream
    *
    * On successful return from open_dataset:
@@ -166,7 +171,7 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
    * in binary or text (as specified by the is_binary flag).
    * Returns 0 if successful, non-zero otherwise.
    * Will set errno if an I/O error occurred
-   * Will update msgbuff with error text for the failure
+   * Will update errbuff with error text for the failure
    * Detailed error messages will be written to logstream
    * If the return code is 0, the DFILE structure will update the following fields:
    * - buffer will point to a buffer containing the contents of the entire dataset 
@@ -184,7 +189,7 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
    * in binary or text mode as specified by the is_binary flag.
    * Returns 0 if successful, non-zero otherwise.
    * Will set errno if an I/O error occurred
-   * Will update msgbuff with error text for the failure
+   * Will update errbuff with error text for the failure
    * Detailed error messages will be written to logstream
    * On entry to write_dataset:
    * - buffer will point to a buffer containing the contents of the entire dataset 
@@ -200,11 +205,36 @@ DIOERR_BPAM_WRITEMEMDIR_FAILED,
    * NOTE: The buffer is NOT freed by close_dataset. 
    * The caller should free the buffer when appropriate.
    * Returns 0 if successful, non-zero otherwise.
-   * Will update msgbuff with error text for the failure
+   * Will update errbuff with error text for the failure
    * Detailed error messages will be written to logstream
    * Will set errno if an I/O error occurred
    */ 
   enum DIOERR close_dataset(struct DFILE* dfile);
+
+  /*
+   * dio_errmsg: Get the combined error message
+   * 
+   * Combines system messages (infobuff) and application errors (errbuff)
+   * into dfile->msgbuff and returns a pointer to it.
+   * 
+   * Parameters:
+   *   dfile - The DFILE structure containing error information
+   * 
+   * Returns:
+   *   Pointer to dfile->msgbuff containing the combined message
+   *   
+   * The combined message format:
+   *   - If both buffers have content: "<infobuff>\nError: <errbuff>"
+   *   - If only infobuff: "<infobuff>"
+   *   - If only errbuff: "<errbuff>"
+   *   - If neither: "Error code: <err>"
+   *   
+   * Usage:
+   *   if (dfile->err) {
+   *       fprintf(stderr, "%s\n", dio_errmsg(dfile));
+   *   }
+   */
+  const char* dio_errmsg(struct DFILE* dfile);
 
   /*
    * dsorgs: return a string representing the dataset organization
