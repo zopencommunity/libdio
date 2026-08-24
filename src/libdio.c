@@ -638,7 +638,12 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
         dfile->recfm = D_V;
         break;
       case RECORD_FORMAT_U:
+        /* RECFM=U (e.g. load modules) are binary - fall back to C I/O path
+         * which handles undefined records reliably via fread. */
         dfile->recfm = D_U;
+        use_bpam_services = 0;
+        close_pds(bh, dfile->opts);
+        difile->bpamhandle = NULL;
         break;
       default:
         errmsg(dfile->opts,
@@ -647,8 +652,13 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
         dfile->err = DIOERR_UNSUPPORTED_RECFM;
         return dfile;
     }
+    
+    /* Only store bpamhandle and reclen if we're actually using BPAM
+     * (i.e., not RECFM=U which falls back to C I/O) */
+    if (use_bpam_services) {
       dfile->reclen = record_length(bh, dfile->opts);
       difile->bpamhandle = bh;
+    }
 
     }
   }
@@ -725,9 +735,11 @@ struct DFILE* open_dataset(const char* dataset_name, FILE* logstream)
 
     if (info.__dsorgPS) {
       dfile->dsorg = D_SEQ;
+    } else if (info.__dsorgPO || info.__dsorgPDSmem) {
+      dfile->dsorg = D_PDS;
     } else {
       errmsg(dfile->opts, "Dataset %s is not PDS, PDSE, or SEQ organization. open_dataset not supported at this time.", dataset_name_copy);
-      dfile->err = DIOERR_UNSUPPORTED_RECFM;
+      dfile->err = DIOERR_UNSUPPORTED_DSORG;
       return dfile;
     }
     dfile->reclen = info.__maxreclen;
